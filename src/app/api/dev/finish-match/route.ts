@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
       settled_at: null, // ensure settle cron picks it up
     })
     .eq('id', matchId)
-    .eq('settled_at', null); // safety: don't re-open an already-settled match
+    .is('settled_at', null); // safety: don't re-open an already-settled match
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
