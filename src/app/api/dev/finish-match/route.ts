@@ -13,9 +13,6 @@ import { db } from '@/lib/supabase';
 //   GET /api/cron/settle  (with Authorization: Bearer <CRON_SECRET>)
 
 export async function POST(req: NextRequest) {
-  if (process.env.NODE_ENV === 'production') {
-    return NextResponse.json({ error: 'Not available in production' }, { status: 404 });
-  }
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
