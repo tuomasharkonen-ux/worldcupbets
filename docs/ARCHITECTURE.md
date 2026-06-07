@@ -42,14 +42,16 @@ There is no websocket layer and no live in-match feed requirement. Bets lock at 
 - **Row-Level Security is intentionally off.** The trust model is "five friends." Authorization is enforced in the server-action layer, not the DB. (Documented here so it's a choice, not an oversight.)
 - Cached balances (`managers.glory`, `managers.coins`) for fast reads, with an append-only `ledger` as the source of truth. See `DATA_MODEL.md`.
 
-### Scheduled jobs (Vercel Cron)
+### Scheduled jobs
 
-Defined in `vercel.json`. Each cron hits a protected API route (guarded by a `CRON_SECRET` header so only Vercel can trigger it).
+Each cron hits a protected API route (guarded by a `CRON_SECRET` bearer header so only an authorized caller can trigger it).
 
-| Job | Cadence | Responsibility |
-| --- | --- | --- |
-| `fixtures-sync` | Daily | Pull/refresh the fixture list, kickoff times, stages, and squad rosters from football-data.org. Upsert into `matches`, `teams`, `footballers`. |
-| `settle` | Every ~10 min | Find matches that are finished but `settled_at IS NULL`, fetch result + events + player stats, run the settlement engine, write ledger entries, set `settled_at`. |
+| Job | Cadence (as deployed) | Trigger | Responsibility |
+| --- | --- | --- | --- |
+| `fixtures-sync` | Daily, 08:00 Helsinki (05:00 UTC) | Vercel Cron (`vercel.json`) | Pull/refresh the fixture list, kickoff times, stages, and (later) squad rosters from football-data.org. Upsert into `matches`, `teams`, `footballers`. |
+| `settle` | Twice daily, 03:00 + 08:00 Helsinki | External — [cron-job.org](https://cron-job.org) | Find matches that are finished but `settled_at IS NULL`, run the settlement engine, write ledger entries, recompute cached balances, set `settled_at`. |
+
+> **Why two cron providers?** The Vercel **Hobby** plan caps cron jobs at *daily cadence* and *two jobs total*. The WC2026 schedule (US venues) gives Finnish viewers two match clusters — evenings (~21:00–01:30) and early mornings (~03:00–07:30). Settling once a day would leave the morning cluster unsettled for nearly 24 h, so `settle` was moved to cron-job.org, which allows arbitrary schedules for free. The two settle runs (03:00 catches the evening cluster, 08:00 catches the morning cluster) are safe to overlap with anything thanks to idempotency.
 
 > **Optimization, not required for v1:** make `settle` cheap when nothing's happening by early-returning if no match has finished since the last run. During match windows it does real work; overnight it's a no-op.
 

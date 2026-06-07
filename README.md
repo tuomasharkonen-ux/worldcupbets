@@ -1,36 +1,88 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# World Cup Bets
 
-## Getting Started
+A private, five-player betting league for the 2026 World Cup. Predict match outcomes and exact scores, lock at kickoff, and watch Glory points settle automatically after full time. No real money — just bragging rights between friends.
 
-First, run the development server:
+**Live:** <https://worldcupbets.vercel.app>
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+---
+
+## Status
+
+Phases 0 and 1 are **complete and deployed**. The core loop — join → bet → lock → settle → leaderboard — works end-to-end on real data. See [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) for the full phased roadmap and what's next.
+
+## Stack
+
+- **Next.js (App Router) + TypeScript + Tailwind** — server components for reads, server actions for writes.
+- **Supabase Postgres** — game state. Accessed server-side with the service-role key; RLS intentionally off (trust model is "five friends").
+- **iron-session** — passcode join flow → signed cookie. No passwords, no email.
+- **Vercel** — hosting + the `fixtures-sync` cron.
+- **cron-job.org** — the twice-daily `settle` cron (Vercel Hobby's cron limits made an external trigger necessary; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
+- **Jest** — unit tests for the settlement engine.
+
+## How it works
+
+1. **Join** — enter the shared `LEAGUE_PASSCODE` and a display name → claim a manager slot → signed cookie keeps you logged in.
+2. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and/or an Exact Score bet. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat.
+3. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Glory movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
+4. **Leaderboard** — managers ranked by Glory.
+
+## Project layout
+
+```
+src/
+  app/
+    join/                 passcode join flow (page + server action)
+    fixtures/             upcoming matches + recent results
+    matches/[matchId]/    bet slip (page + BetSlip client component + action)
+    leaderboard/          Glory + Coins ranking
+    api/cron/             fixtures-sync, settle  (CRON_SECRET-guarded)
+    api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
+  settlement/             pure, unit-tested engine + types + fixtures
+  lib/                    supabase client, session, cron auth
+  types/                  hand-written DB types mirroring the schema
+supabase/migrations/      001_initial_schema.sql  (the source of truth for the schema)
+docs/                     ARCHITECTURE, DATA_MODEL, GAME_DESIGN, BUILD_PLAN
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Local development
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm install
+cp .env.example .env.local   # fill in the values (see below)
+npm run dev                  # http://localhost:3000
+npm test                     # settlement engine unit tests
+npm run lint                 # eslint + tsc --noEmit
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Environment variables
 
-## Learn More
+All server-only; never shipped to the browser. Set in Vercel for production, `.env.local` for dev.
 
-To learn more about Next.js, take a look at the following resources:
+| Var | Purpose |
+| --- | --- |
+| `SUPABASE_URL` | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-side DB access |
+| `FOOTBALL_DATA_TOKEN` | football-data.org API token |
+| `LEAGUE_PASSCODE` | Shared join code (also stored in the `league` row) |
+| `SESSION_PASSWORD` | iron-session cookie encryption (≥32 chars) |
+| `CRON_SECRET` | Bearer token guarding the cron + dev API routes |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Operations
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Pull fixtures** (run once when football-data.org publishes WC2026, then daily via Vercel cron):
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/fixtures-sync
+  ```
+- **Force a settlement run** (otherwise automatic at 03:00 + 08:00 Helsinki):
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/settle
+  ```
+- **Database access** — `psql "$SUPABASE_CONNECTION_STRING"` for direct SQL.
+- **Test the loop without real matches** — `GET /api/dev/seed-match` creates a synthetic match (kickoff +3 min), `POST /api/dev/finish-match` marks it finished with a score, then run `settle`. Both require the `CRON_SECRET` bearer header.
 
-## Deploy on Vercel
+## Documentation
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — system design, data ingestion, cron strategy, security.
+- [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — full schema, tables, indexes, idempotency.
+- [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) — rules of play, scoring, the shop.
+- [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) — phased roadmap and current progress.

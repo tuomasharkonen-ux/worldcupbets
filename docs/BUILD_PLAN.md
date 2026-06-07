@@ -6,17 +6,35 @@ Build order is deliberately **vertical then horizontal**: get one thin slice wor
 
 ---
 
+## 📍 Current status (as of 2026-06-07)
+
+**Phases 0 and 1 are complete and deployed to production** at <https://worldcupbets.vercel.app>. The full core loop (join → bet → lock → settle → leaderboard) has been verified end-to-end with a synthetic test match. The app is ready for the June 11 kickoff.
+
+| Phase | Status |
+| --- | --- |
+| 0 — Foundations | ✅ Done |
+| 1 — Core betting loop (MVP) | ✅ Done |
+| 2 — Player props | ⬜ Not started |
+| 3 — Coins + hybrid staking | 🟡 Partial (schema, config, and leaderboard coin display exist; `stake_mult` applied in engine; no staking UI or coin income yet) |
+| 4 — Stat Leader prop | ⬜ Not started |
+| 5 — Shop | ⬜ Not started |
+| 6 — Draft / auction | ⬜ Not started |
+
+**Remaining before kickoff:** trigger `fixtures-sync` once football-data.org publishes the WC2026 schedule; share the link + passcode with the five managers.
+
+---
+
 ## Phase 0 — Foundations
 
 Goal: an empty app that deploys and talks to the database.
 
-- [ ] Next.js + TypeScript + Tailwind scaffold, deployed to Vercel (hello-world).
-- [ ] Supabase project created; service-role key in Vercel env.
-- [ ] Apply schema from `DATA_MODEL.md` (SQL editor or migration tool).
-- [ ] `.env.example` + secrets wired (`FOOTBALL_DATA_TOKEN`, `CRON_SECRET`, `LEAGUE_PASSCODE`).
-- [ ] Passcode join flow → claim a manager → signed cookie. (This *is* the "auth.")
+- [x] Next.js + TypeScript + Tailwind scaffold, deployed to Vercel (hello-world).
+- [x] Supabase project created; service-role key in Vercel env.
+- [x] Apply schema from `DATA_MODEL.md` (`supabase/migrations/001_initial_schema.sql`).
+- [x] `.env.example` + secrets wired (`FOOTBALL_DATA_TOKEN`, `CRON_SECRET`, `LEAGUE_PASSCODE`, `SUPABASE_*`, `SESSION_PASSWORD`).
+- [x] Passcode join flow → claim a manager → signed cookie (iron-session). (This *is* the "auth.")
 
-**Done when:** five people can join with the passcode and see their (empty) profile.
+**Done when:** five people can join with the passcode and see their (empty) profile. ✅
 
 ---
 
@@ -24,15 +42,15 @@ Goal: an empty app that deploys and talks to the database.
 
 Goal: the whole game in its simplest form, on bulletproof data only.
 
-- [ ] `fixtures-sync` cron: pull WC fixtures + teams from football-data.org → `matches`, `teams`.
-- [ ] Fixtures UI: upcoming matches with kickoff times in local tz.
-- [ ] Bet slip (core only): Outcome + Exact Score. Locks at kickoff (UTC-checked server-side).
-- [ ] `settle` cron: detect finished matches, pull result, run settlement engine for core bets, write `ledger`, set `settled_at`.
-- [ ] Settlement engine as **pure, unit-tested functions** against saved fixture JSON.
-- [ ] Idempotency guard (unique ledger index + `settled_at`).
-- [ ] Leaderboard (Glory only).
+- [x] `fixtures-sync` cron: pull WC fixtures + teams from football-data.org → `matches`, `teams`.
+- [x] Fixtures UI: upcoming matches + recent results with kickoff times in local tz (Helsinki).
+- [x] Bet slip (core only): Outcome + Exact Score. Locks at kickoff (UTC-checked server-side).
+- [x] `settle` cron: detect finished matches, run settlement engine for core bets, write `ledger`, recompute balances, set `settled_at`.
+- [x] Settlement engine as **pure, unit-tested functions** against saved fixture JSON (10 tests, all green).
+- [x] Idempotency guard (unique ledger index + `settled_at` re-check).
+- [x] Leaderboard (Glory; Coins also displayed).
 
-**Done when:** you can predict a real match, it locks, and Glory updates automatically after full time without you touching anything. **This is the milestone that proves the concept.**
+**Done when:** you can predict a real match, it locks, and Glory updates automatically after full time without you touching anything. **This is the milestone that proves the concept.** ✅ Verified end-to-end with a synthetic test match via the dev endpoints.
 
 ---
 
