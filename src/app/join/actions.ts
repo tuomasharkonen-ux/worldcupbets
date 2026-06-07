@@ -12,7 +12,7 @@ export async function joinLeague(formData: FormData) {
     redirect('/join?error=missing_fields');
   }
 
-  const { data: league } = await db.from('league').select('passcode').eq('id', 1).single();
+  const { data: league } = await db.from('league').select('passcode, config').eq('id', 1).single();
   if (!league || league.passcode !== passcode) {
     redirect('/join?error=wrong_passcode');
   }
@@ -24,17 +24,18 @@ export async function joinLeague(formData: FormData) {
 
   const { data: existing } = await db
     .from('managers')
-    .select('id, display_name')
+    .select('id')
     .eq('display_name', displayName)
     .maybeSingle();
 
   let managerId: string;
 
   if (existing) {
+    // Reclaiming an existing slot — just log back in
     managerId = existing.id;
   } else {
-    const { data: leagueConfig } = await db.from('league').select('config').eq('id', 1).single();
-    const startingCoins = (leagueConfig?.config as { coins?: { starting_balance?: number } })?.coins?.starting_balance ?? 100;
+    const startingCoins =
+      (league.config as { coins?: { starting_balance?: number } })?.coins?.starting_balance ?? 100;
 
     const { data: manager, error } = await db
       .from('managers')
@@ -43,6 +44,17 @@ export async function joinLeague(formData: FormData) {
       .single();
     if (error || !manager) redirect('/join?error=server_error');
     managerId = (manager as { id: string }).id;
+
+    // Seed the ledger so the settle cron can recompute balances correctly.
+    // Without this entry the recompute would under-count coins by startingCoins.
+    await db.from('ledger').insert({
+      manager_id: managerId,
+      currency: 'coins',
+      amount: startingCoins,
+      reason: 'starting_balance',
+      ref_type: 'manager',
+      ref_id: managerId,
+    });
   }
 
   const session = await getSession();
