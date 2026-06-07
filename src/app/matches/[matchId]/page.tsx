@@ -6,8 +6,15 @@ import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { BetSlip } from './BetSlip';
-import type { Bet, Match, Team } from '@/types/db';
+import { BetSlip, type SlipSquads } from './BetSlip';
+import type { Bet, Footballer, Match, Team } from '@/types/db';
+
+type PropField = 'first_scorer' | 'anytime_scorer' | 'carded';
+const PROP_LABELS: Record<PropField, string> = {
+  first_scorer: 'First scorer',
+  anytime_scorer: 'Anytime scorer',
+  carded: 'Carded',
+};
 
 const TIMEZONE = 'Europe/Helsinki';
 
@@ -57,9 +64,33 @@ export default async function MatchPage({
     .eq('match_id', matchId)
     .eq('manager_id', session.managerId!);
 
+  // Squads for the prop pickers (null until squads-sync has populated them).
+  const { data: footballers } = await db
+    .from('footballers')
+    .select('id, name, squad_number, team_id')
+    .in('team_id', [match.home_team_id, match.away_team_id])
+    .order('squad_number', { ascending: true });
+
+  const players = (footballers ?? []) as Pick<Footballer, 'id' | 'name' | 'squad_number' | 'team_id'>[];
+  const playerName = new Map(players.map(p => [p.id, p.name]));
+  const squads: SlipSquads | null = players.length > 0
+    ? {
+        homeTeam: match.home_team.name,
+        awayTeam: match.away_team.name,
+        homePlayers: players.filter(p => p.team_id === match.home_team_id),
+        awayPlayers: players.filter(p => p.team_id === match.away_team_id),
+      }
+    : null;
+
   const bets = (existingBets ?? []) as Pick<Bet, 'bet_type' | 'selection' | 'status'>[];
   const outcomeBet = bets.find(b => b.bet_type === 'outcome');
   const exactBet = bets.find(b => b.bet_type === 'exact_score');
+
+  const propSelections: Partial<Record<PropField, string>> = {};
+  for (const field of Object.keys(PROP_LABELS) as PropField[]) {
+    const bet = bets.find(b => b.bet_type === field);
+    if (bet) propSelections[field] = (bet.selection as { footballer_id: string }).footballer_id;
+  }
 
   const existingForSlip = {
     outcome: outcomeBet
@@ -68,6 +99,7 @@ export default async function MatchPage({
     exactScore: exactBet
       ? (exactBet.selection as { home: number; away: number })
       : undefined,
+    props: propSelections,
   };
 
   const stageLabel = match.group_label ? `Group ${match.group_label}` : match.stage.toUpperCase();
@@ -133,10 +165,17 @@ export default async function MatchPage({
           <Card variant="solid" padding="md" className="space-y-2.5">
             <h3 className="text-xs font-semibold uppercase tracking-wider text-subtle">Your bets</h3>
             {bets.map((b, i) => {
-              const label =
-                b.bet_type === 'outcome'
-                  ? `Outcome: ${(b.selection as { result: string }).result}`
-                  : `Score: ${(b.selection as { home: number; away: number }).home}–${(b.selection as { home: number; away: number }).away}`;
+              let label: string;
+              if (b.bet_type === 'outcome') {
+                label = `Outcome: ${(b.selection as { result: string }).result}`;
+              } else if (b.bet_type === 'exact_score') {
+                const s = b.selection as { home: number; away: number };
+                label = `Score: ${s.home}–${s.away}`;
+              } else {
+                const propLabel = PROP_LABELS[b.bet_type as PropField] ?? b.bet_type;
+                const fid = (b.selection as { footballer_id: string }).footballer_id;
+                label = `${propLabel}: ${playerName.get(fid) ?? 'Unknown'}`;
+              }
               const style = STATUS_STYLE[b.status as keyof typeof STATUS_STYLE] ?? STATUS_STYLE.pending;
               return (
                 <div key={i} className="flex items-center justify-between text-sm">
@@ -162,6 +201,7 @@ export default async function MatchPage({
               homeTeam={match.home_team.name}
               awayTeam={match.away_team.name}
               locked={locked}
+              squads={squads}
               existing={existingForSlip}
             />
           </div>

@@ -1,6 +1,6 @@
 # World Cup Bets
 
-A private, five-player betting league for the 2026 World Cup. Predict match outcomes and exact scores, lock at kickoff, and watch Points settle automatically after full time. No real money — just bragging rights between friends.
+A private, five-player betting league for the 2026 World Cup. Predict match outcomes, exact scores, and player props (first/anytime goalscorer, who gets carded), lock at kickoff, and watch Points settle automatically after full time. No real money — just bragging rights between friends.
 
 **Live:** <https://worldcupbets.vercel.app>
 
@@ -8,7 +8,7 @@ A private, five-player betting league for the 2026 World Cup. Predict match outc
 
 ## Status
 
-Phases 0 and 1 are **complete and deployed**. The core loop — join → bet → lock → settle → leaderboard — works end-to-end on real data. See [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) for the full phased roadmap and what's next.
+Phases 0–2 are **complete**. The core loop — join → bet → lock → settle → leaderboard — works end-to-end on real data, and player props (Phase 2) are built and unit-tested. Props go live once squads are synced (`/api/cron/squads-sync`) and migration `002` is applied. See [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) for the full phased roadmap and what's next.
 
 ## Stack
 
@@ -36,7 +36,7 @@ src/
     fixtures/             upcoming matches + recent results
     matches/[matchId]/    bet slip (page + BetSlip client component + action)
     leaderboard/          Points + Coins ranking
-    api/cron/             fixtures-sync, settle  (CRON_SECRET-guarded)
+    api/cron/             fixtures-sync, squads-sync, settle  (CRON_SECRET-guarded)
     api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
   components/
     Nav.tsx               top navigation (glass)
@@ -44,7 +44,7 @@ src/
   settlement/             pure, unit-tested engine + types + fixtures
   lib/                    supabase client, session, cron auth, cn() class helper
   types/                  hand-written DB types mirroring the schema
-supabase/migrations/      001_initial_schema.sql  (the source of truth for the schema)
+supabase/migrations/      001_initial_schema.sql, 002_phase2_props.sql  (source of truth for the schema)
 docs/                     ARCHITECTURE, DATA_MODEL, GAME_DESIGN, BUILD_PLAN, DESIGN_SYSTEM
 ```
 
@@ -77,6 +77,11 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/fixtures-sync
   ```
+- **Sync squads** (run once after final 26-man squads are confirmed, ~June 1, and again on any revision — needed before player props can be picked or settled):
+  ```
+  curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/squads-sync
+  ```
+
 - **Force a settlement run** (otherwise automatic at 03:00 + 08:00 Helsinki):
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/settle

@@ -1,7 +1,14 @@
 // Settlement engine — pure functions only.
 // No DB calls, no fetch, no Date.now(). Caller fetches inputs and writes results.
 
-import { Bet, ExactScoreSelection, LeagueConfig, OutcomeSelection } from '@/types/db';
+import {
+  Bet,
+  ExactScoreSelection,
+  FootballerSelection,
+  LeagueConfig,
+  MatchEvent,
+  OutcomeSelection,
+} from '@/types/db';
 import { BetUpdate, CurrencyDelta, SettleInput, SettleResult } from './types';
 
 export function settle(input: SettleInput): SettleResult {
@@ -56,7 +63,7 @@ export function settle(input: SettleInput): SettleResult {
 }
 
 function settleBet(bet: Bet, input: SettleInput): BetUpdate {
-  const { match, config } = input;
+  const { match, config, events, appearances } = input;
   const home = match.home_score!;
   const away = match.away_score!;
   const mult = match.glory_multiplier;
@@ -66,8 +73,14 @@ function settleBet(bet: Bet, input: SettleInput): BetUpdate {
       return settleOutcome(bet, home, away, mult, config);
     case 'exact_score':
       return settleExactScore(bet, home, away, mult, config);
+    case 'first_scorer':
+      return settleScorerProp(bet, events, mult, config, appearances, 'first');
+    case 'anytime_scorer':
+      return settleScorerProp(bet, events, mult, config, appearances, 'anytime');
+    case 'carded':
+      return settleCarded(bet, events, mult, config, appearances);
     default:
-      // Props are settled in later phases
+      // stat_leader is settled in Phase 4 (Sofascore)
       return { betId: bet.id, status: 'void', pointsAwarded: 0 };
   }
 }
@@ -115,6 +128,84 @@ function settleExactScore(
     status: won ? 'won' : 'lost',
     pointsAwarded: points,
   };
+}
+
+// ─── player props (Phase 2) ──────────────────────────────────────────────────
+
+// A "scoring" event for prop purposes: an open-play goal or a penalty, never an
+// own goal. First/Anytime Goalscorer markets always exclude own goals.
+function isScoringEvent(e: MatchEvent): boolean {
+  return (e.type === 'goal' || e.type === 'penalty') && !e.is_own_goal;
+}
+
+// The scorer of the match's first (earliest-minute) non-own goal, or null if the
+// only goals were own goals / there were no goals.
+function firstScorerId(events: MatchEvent[]): string | null {
+  const goals = events.filter(isScoringEvent).filter(e => e.footballer_id != null);
+  if (goals.length === 0) return null;
+  // Stable sort by minute; nulls (unknown minute) sort last.
+  const sorted = [...goals].sort(
+    (a, b) => (a.minute ?? Number.MAX_SAFE_INTEGER) - (b.minute ?? Number.MAX_SAFE_INTEGER),
+  );
+  return sorted[0].footballer_id;
+}
+
+// Did we appear? `won` short-circuits appearance checks (you can't score without
+// playing). Otherwise: void if we have lineup data and the pick isn't in it,
+// else lost. Empty/absent appearances = no data → never void.
+function propResult(
+  bet: Bet,
+  pickId: string,
+  won: boolean,
+  points: number,
+  appearances: string[] | undefined,
+): BetUpdate {
+  if (won) return { betId: bet.id, status: 'won', pointsAwarded: points };
+  const haveLineups = appearances != null && appearances.length > 0;
+  if (haveLineups && !appearances!.includes(pickId)) {
+    return { betId: bet.id, status: 'void', pointsAwarded: 0 };
+  }
+  return { betId: bet.id, status: 'lost', pointsAwarded: 0 };
+}
+
+function settleScorerProp(
+  bet: Bet,
+  events: MatchEvent[],
+  mult: number,
+  config: LeagueConfig,
+  appearances: string[] | undefined,
+  kind: 'first' | 'anytime',
+): BetUpdate {
+  const pickId = (bet.selection as FootballerSelection).footballer_id;
+
+  const won =
+    kind === 'first'
+      ? firstScorerId(events) === pickId
+      : events.some(e => isScoringEvent(e) && e.footballer_id === pickId);
+
+  const basePoints = (kind === 'first' ? config.glory.first_goalscorer : config.glory.anytime_scorer) ?? 0;
+  const points = won ? Math.round(basePoints * mult * bet.stake_mult) : 0;
+
+  return propResult(bet, pickId, won, points, appearances);
+}
+
+function settleCarded(
+  bet: Bet,
+  events: MatchEvent[],
+  mult: number,
+  config: LeagueConfig,
+  appearances: string[] | undefined,
+): BetUpdate {
+  const pickId = (bet.selection as FootballerSelection).footballer_id;
+
+  const won = events.some(
+    e => (e.type === 'yellow' || e.type === 'red') && e.footballer_id === pickId,
+  );
+
+  const basePoints = config.glory.carded ?? 0;
+  const points = won ? Math.round(basePoints * mult * bet.stake_mult) : 0;
+
+  return propResult(bet, pickId, won, points, appearances);
 }
 
 // Re-export types so callers only need to import from engine.ts

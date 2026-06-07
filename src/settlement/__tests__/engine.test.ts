@@ -121,6 +121,150 @@ describe('participation points', () => {
   });
 });
 
+// Config including Phase 2 prop values (the v1 fixture predates them).
+const propConfig: LeagueConfig = {
+  ...config,
+  glory: { ...config.glory, first_goalscorer: 20, anytime_scorer: 8, carded: 6, stat_leader: 15 },
+};
+
+function makeEvent(overrides: Partial<MatchEvent>): MatchEvent {
+  return {
+    id: 'evt-x',
+    match_id: match.id,
+    footballer_id: 'plr-1',
+    type: 'goal',
+    minute: 20,
+    is_own_goal: false,
+    ...overrides,
+  };
+}
+
+describe('first goalscorer prop', () => {
+  test('pick scores the first goal → won', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', minute: 20 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-2', minute: 35 }),
+    ];
+    const bet = makeBet({ bet_type: 'first_scorer', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(20); // 20 * 1.0 * 1.0
+  });
+
+  test('pick scores but not first → lost', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', minute: 20 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-2', minute: 35 }),
+    ];
+    const bet = makeBet({ bet_type: 'first_scorer', selection: { footballer_id: 'plr-2' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+    expect(result.betUpdates[0].pointsAwarded).toBe(0);
+  });
+
+  test('own goal is excluded — first real scorer wins', () => {
+    const events = [
+      makeEvent({ id: 'e0', footballer_id: 'plr-9', type: 'own_goal', minute: 10, is_own_goal: true }),
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', minute: 20 }),
+    ];
+    const bet = makeBet({ bet_type: 'first_scorer', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+  });
+
+  test('a penalty counts as a goal', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1', type: 'penalty', minute: 12 })];
+    const bet = makeBet({ bet_type: 'first_scorer', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+  });
+});
+
+describe('anytime goalscorer prop', () => {
+  test('pick scores at any point → won', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', minute: 5 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-2', minute: 80 }),
+    ];
+    const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-2' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(8);
+  });
+
+  test('own goal does not count as scoring for the player', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1', type: 'own_goal', is_own_goal: true })];
+    const bet = makeBet({
+      bet_type: 'anytime_scorer',
+      selection: { footballer_id: 'plr-1' },
+      // appeared, so this is a loss, not a void
+    });
+    const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-1'] });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
+});
+
+describe('carded prop', () => {
+  test('pick gets a yellow → won', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-3', type: 'yellow', minute: 55 })];
+    const bet = makeBet({ bet_type: 'carded', selection: { footballer_id: 'plr-3' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(6);
+  });
+
+  test('red card also counts, and knockout multiplier applies', () => {
+    const finalMatch: Match = { ...match, stage: 'final', glory_multiplier: 2.0 };
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-3', type: 'red', minute: 70 })];
+    const bet = makeBet({ bet_type: 'carded', selection: { footballer_id: 'plr-3' } });
+    const result = settle({ match: finalMatch, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(12); // 6 * 2.0
+  });
+});
+
+describe('prop void logic (non-appearance)', () => {
+  test('pick did not appear → void', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
+    const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-99' } });
+    const result = settle({
+      match,
+      bets: [bet],
+      events,
+      config: propConfig,
+      appearances: ['plr-1', 'plr-2'], // plr-99 not listed
+    });
+
+    expect(result.betUpdates[0].status).toBe('void');
+    expect(result.betUpdates[0].pointsAwarded).toBe(0);
+  });
+
+  test('void bets earn no Glory delta (but still get participation)', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
+    const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-99' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-1'] });
+
+    expect(result.deltas.filter(d => d.reason === 'bet_win')).toHaveLength(0);
+    expect(result.deltas.filter(d => d.reason === 'participation')).toHaveLength(1);
+  });
+
+  test('no lineup data → unmatched pick settles as lost, not void', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
+    const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-99' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig }); // no appearances
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
+});
+
 describe('idempotency', () => {
   test('already-settled bets are skipped', () => {
     const bet = makeBet({ status: 'won', glory_awarded: 10 });

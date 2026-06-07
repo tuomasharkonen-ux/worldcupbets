@@ -24,6 +24,12 @@ export interface LeagueConfig {
     outcome_correct: number;
     exact_score_bonus: number;
     participation: number;
+    // Player props (Phase 2). Optional so v1 configs still type-check; the
+    // settlement engine falls back to 0 when a value is absent.
+    first_goalscorer?: number;
+    anytime_scorer?: number;
+    carded?: number;
+    stat_leader?: number;
   };
   coins: {
     starting_balance: number;
@@ -89,6 +95,12 @@ export interface MatchEvent {
   type: EventType;
   minute: number | null;
   is_own_goal: boolean;
+}
+
+export interface MatchAppearance {
+  id: string;
+  match_id: string;
+  footballer_id: string;
 }
 
 export interface PlayerMatchStats {

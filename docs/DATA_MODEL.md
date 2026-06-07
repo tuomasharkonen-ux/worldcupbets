@@ -11,7 +11,7 @@ Postgres (Supabase). Schema is written to be readable as a migration. Naming con
 ```
 league (1 row of config)
 managers ──< bets >── matches ──< match_events
-   │                     │
+   │                     ├──< match_appearances >─┐
    │                     └──< player_match_stats >── footballers >── teams
    │
    ├──< ledger
@@ -32,6 +32,8 @@ Single-row global config. Keeps tunable values out of the code.
 | `season` | text | "WC2026" |
 | `phase` | text | `group` \| `knockout` \| `finished` |
 | `config` | jsonb | all tunable constants (scoring values, costs, multipliers) |
+
+`config.glory` holds the Glory payouts: `outcome_correct` (10), `exact_score_bonus` (15), `participation` (2), and the player props `first_goalscorer` (20), `anytime_scorer` (8), `carded` (6), `stat_leader` (15). Prop values were added in migration `002`.
 
 ### `managers`
 The five humans.
@@ -101,6 +103,18 @@ Goals and cards, from football-data.org. Powers goalscorer/card props.
 | `type` | text | `goal` \| `own_goal` \| `yellow` \| `red` \| `penalty` |
 | `minute` | int | used to derive "first" goalscorer |
 | `is_own_goal` | bool | scorer not credited for props |
+
+### `match_appearances`
+Who actually took the pitch (starting XI + subs who came on), from football-data.org lineups. **Best-effort** — populated by the settle job only when the lineup feed carries data. Powers prop **void** logic.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid PK | |
+| `match_id` | uuid FK → matches | |
+| `footballer_id` | uuid FK → footballers | |
+| | | UNIQUE `(match_id, footballer_id)` |
+
+> **Void semantics:** a goalscorer/card prop on a player with no qualifying event settles as `void` (stake refunded, no Glory) **only if** we have lineup data and the player isn't in it. When the feed omits lineups, `match_appearances` stays empty for that match and the prop settles as `lost` instead — we can't prove non-appearance. Players who *did* score/get carded clearly appeared, so they win regardless.
 
 ### `player_match_stats`
 Per-player granular stats, from Sofascore. Powers the Stat Leader prop. Sparse — rows only exist when the feed succeeded.
@@ -196,7 +210,7 @@ Permanent upgrades (`kind = upgrade`) stay `active` forever and are read when co
 
 ---
 
-## Phase 2 (draft layer) — not built in v1
+## Draft layer (BUILD_PLAN Phase 6) — not built in v1
 
 Designed so it slots in without touching the above. Adds:
 

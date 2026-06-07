@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { AlertCircle, CheckCircle2, Loader2, Lock, Save } from 'lucide-react';
@@ -7,16 +8,18 @@ import { submitBet, type BetSlipState } from './actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-function SubmitButton({ locked }: { locked: boolean }) {
+const MAX_PROPS = 2;
+
+function SubmitButton({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <Button type="submit" size="lg" disabled={pending || locked} className="w-full">
+    <Button type="submit" size="lg" disabled={pending || disabled} className="w-full">
       {pending ? (
         <>
           <Loader2 className="size-5 animate-spin" aria-hidden />
           Saving…
         </>
-      ) : locked ? (
+      ) : disabled ? (
         <>
           <Lock className="size-5" aria-hidden />
           Locked
@@ -31,20 +34,105 @@ function SubmitButton({ locked }: { locked: boolean }) {
   );
 }
 
+export interface SlipPlayer {
+  id: string;
+  name: string;
+  squad_number: number | null;
+}
+
+export interface SlipSquads {
+  homeTeam: string;
+  awayTeam: string;
+  homePlayers: SlipPlayer[];
+  awayPlayers: SlipPlayer[];
+}
+
+interface PropDef {
+  field: 'first_scorer' | 'anytime_scorer' | 'carded';
+  label: string;
+  hint: string;
+}
+
+const PROPS: PropDef[] = [
+  { field: 'first_scorer', label: 'First goalscorer', hint: '+20 pts' },
+  { field: 'anytime_scorer', label: 'Anytime goalscorer', hint: '+8 pts' },
+  { field: 'carded', label: 'Booked (yellow or red)', hint: '+6 pts' },
+];
+
 interface Props {
   matchId: string;
   homeTeam: string;
   awayTeam: string;
   locked: boolean;
+  squads: SlipSquads | null;
   existing: {
     outcome?: 'home' | 'draw' | 'away';
     exactScore?: { home: number; away: number };
+    props?: Partial<Record<'first_scorer' | 'anytime_scorer' | 'carded', string>>;
   };
 }
 
-export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props) {
+function PlayerSelect({
+  field,
+  label,
+  hint,
+  squads,
+  defaultValue,
+  locked,
+  onChange,
+}: PropDef & {
+  squads: SlipSquads;
+  defaultValue: string;
+  locked: boolean;
+  onChange: (field: PropDef['field'], value: string) => void;
+}) {
+  const optionLabel = (p: SlipPlayer) =>
+    p.squad_number != null ? `${p.squad_number}. ${p.name}` : p.name;
+
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={field} className="flex items-center justify-between text-xs">
+        <span className="text-subtle">{label}</span>
+        <span className="text-points">{hint}</span>
+      </label>
+      <select
+        id={field}
+        name={field}
+        defaultValue={defaultValue}
+        disabled={locked}
+        onChange={e => onChange(field, e.target.value)}
+        className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground transition-[border-color,box-shadow] focus-visible:border-[var(--color-primary-bright)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <option value="">— no pick —</option>
+        <optgroup label={squads.homeTeam}>
+          {squads.homePlayers.map(p => (
+            <option key={p.id} value={p.id}>{optionLabel(p)}</option>
+          ))}
+        </optgroup>
+        <optgroup label={squads.awayTeam}>
+          {squads.awayPlayers.map(p => (
+            <option key={p.id} value={p.id}>{optionLabel(p)}</option>
+          ))}
+        </optgroup>
+      </select>
+    </div>
+  );
+}
+
+export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, existing }: Props) {
   const boundAction = submitBet.bind(null, matchId);
   const [state, formAction] = useActionState<BetSlipState, FormData>(boundAction, {});
+
+  // Track prop selections live so we can warn before the server rejects > MAX_PROPS.
+  const [propValues, setPropValues] = useState<Record<string, string>>({
+    first_scorer: existing.props?.first_scorer ?? '',
+    anytime_scorer: existing.props?.anytime_scorer ?? '',
+    carded: existing.props?.carded ?? '',
+  });
+  const onPropChange = (field: string, value: string) =>
+    setPropValues(prev => ({ ...prev, [field]: value }));
+  const chosenCount = Object.values(propValues).filter(Boolean).length;
+  const tooMany = chosenCount > MAX_PROPS;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -155,7 +243,43 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props
         <p className="text-xs text-subtle">Leave both empty to skip the exact score bet.</p>
       </fieldset>
 
-      <SubmitButton locked={locked} />
+      {/* Player props */}
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-medium text-muted">
+          Player props{' '}
+          <span className="font-normal text-subtle">(optional, pick up to {MAX_PROPS})</span>
+        </legend>
+        {squads ? (
+          <>
+            {PROPS.map(p => (
+              <PlayerSelect
+                key={p.field}
+                {...p}
+                squads={squads}
+                defaultValue={existing.props?.[p.field] ?? ''}
+                locked={locked}
+                onChange={onPropChange}
+              />
+            ))}
+            {tooMany ? (
+              <p className="flex items-center gap-1.5 text-xs text-danger">
+                <AlertCircle className="size-3.5" aria-hidden />
+                Pick at most {MAX_PROPS} props — clear one to continue.
+              </p>
+            ) : (
+              <p className="text-xs text-subtle">
+                {chosenCount}/{MAX_PROPS} selected. A pick voids (no points lost) if the player never takes the pitch.
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="text-xs text-subtle">
+            Player props open once squads are confirmed.
+          </p>
+        )}
+      </fieldset>
+
+      <SubmitButton disabled={locked || tooMany} />
     </form>
   );
 }

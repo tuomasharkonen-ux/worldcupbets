@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/cron';
 import { db } from '@/lib/supabase';
+import { getMatchDetail } from '@/lib/football-data';
 import { settle } from '@/settlement/engine';
-import type { Bet, League, Match, MatchEvent } from '@/types/db';
+import type { Bet, EventType, League, Match, MatchEvent } from '@/types/db';
+
+// bet_types that need match_events / lineups to settle
+const PROP_BET_TYPES = ['first_scorer', 'anytime_scorer', 'carded'];
 
 // Vercel Cron: every 10 minutes — settles finished, unsettled matches
 export async function GET(req: NextRequest) {
@@ -66,20 +70,38 @@ async function settleMatch(match: Match, league: League): Promise<void> {
     .eq('match_id', match.id)
     .eq('status', 'pending');
   if (betsErr) throw betsErr;
+  const pendingBets = (bets ?? []) as Bet[];
 
-  // Load match events (goals, cards)
+  // Player props need goals/cards/lineups from football-data. Only pay for the
+  // extra API call when there's actually a prop bet riding on this match.
+  // If ingestion throws, we let settleMatch throw too: the match stays unsettled
+  // (settled_at null) and the next cron run retries — better than prematurely
+  // settling props on missing data.
+  const hasProps = pendingBets.some(b => PROP_BET_TYPES.includes(b.bet_type));
+  if (hasProps) {
+    await ingestMatchData(match);
+  }
+
+  // Load match events (goals, cards) + known appearances (for prop void logic)
   const { data: events, error: eventsErr } = await db
     .from('match_events')
     .select('*')
     .eq('match_id', match.id);
   if (eventsErr) throw eventsErr;
 
+  const { data: appRows } = await db
+    .from('match_appearances')
+    .select('footballer_id')
+    .eq('match_id', match.id);
+  const appearances = (appRows ?? []).map(a => a.footballer_id as string);
+
   // Run the pure settlement engine
   const result = settle({
     match,
-    bets: (bets ?? []) as Bet[],
+    bets: pendingBets,
     events: (events ?? []) as MatchEvent[],
     config: league.config,
+    appearances: appearances.length > 0 ? appearances : undefined,
   });
 
   // Write results in a single transaction-like batch
@@ -134,4 +156,76 @@ async function settleMatch(match: Match, league: League): Promise<void> {
     .from('matches')
     .update({ settled_at: new Date().toISOString() })
     .eq('id', match.id);
+}
+
+// Pull goals/cards/lineups from football-data.org and (re)write match_events +
+// match_appearances for this match. Idempotent: clears prior rows first, so a
+// retried settle produces the same result. Throws on fetch failure — the caller
+// treats that as "not ready yet" and leaves the match unsettled.
+async function ingestMatchData(match: Match): Promise<void> {
+  // Map football-data player ids → our footballer UUIDs (both teams' squads).
+  const { data: players } = await db
+    .from('footballers')
+    .select('id, fd_player_id')
+    .in('team_id', [match.home_team_id, match.away_team_id]);
+
+  const byFdId = new Map<number, string>();
+  for (const p of players ?? []) {
+    if (p.fd_player_id != null) byFdId.set(p.fd_player_id, p.id as string);
+  }
+
+  const detail = await getMatchDetail(match.fd_match_id);
+
+  // Goals → match_events. Own goals keep the scorer but are flagged so the
+  // engine excludes them from goalscorer props.
+  const eventRows: Array<{
+    match_id: string;
+    footballer_id: string | null;
+    type: EventType;
+    minute: number | null;
+    is_own_goal: boolean;
+  }> = [];
+
+  for (const g of detail.goals ?? []) {
+    const fid = g.scorer?.id != null ? byFdId.get(g.scorer.id) ?? null : null;
+    const isOwn = g.type === 'OWN';
+    const type: EventType = isOwn ? 'own_goal' : g.type === 'PENALTY' ? 'penalty' : 'goal';
+    eventRows.push({ match_id: match.id, footballer_id: fid, type, minute: g.minute ?? null, is_own_goal: isOwn });
+  }
+
+  for (const b of detail.bookings ?? []) {
+    const fid = byFdId.get(b.player.id) ?? null;
+    const type: EventType = b.card === 'RED' || b.card === 'YELLOW_RED' ? 'red' : 'yellow';
+    eventRows.push({ match_id: match.id, footballer_id: fid, type, minute: b.minute ?? null, is_own_goal: false });
+  }
+
+  // Appearances: starting XI + subs who came on. Only trustworthy when the feed
+  // actually carries lineups; otherwise this stays empty and void logic is skipped.
+  const appeared = new Set<string>();
+  for (const side of [detail.homeTeam, detail.awayTeam]) {
+    for (const p of side.lineup ?? []) {
+      const id = byFdId.get(p.id);
+      if (id) appeared.add(id);
+    }
+  }
+  for (const s of detail.substitutions ?? []) {
+    if (s.playerIn?.id != null) {
+      const id = byFdId.get(s.playerIn.id);
+      if (id) appeared.add(id);
+    }
+  }
+
+  // Idempotent re-ingest: clear then insert.
+  await db.from('match_events').delete().eq('match_id', match.id);
+  if (eventRows.length > 0) {
+    const { error } = await db.from('match_events').insert(eventRows);
+    if (error) throw error;
+  }
+
+  await db.from('match_appearances').delete().eq('match_id', match.id);
+  if (appeared.size > 0) {
+    const rows = [...appeared].map(footballer_id => ({ match_id: match.id, footballer_id }));
+    const { error } = await db.from('match_appearances').insert(rows);
+    if (error) throw error;
+  }
 }

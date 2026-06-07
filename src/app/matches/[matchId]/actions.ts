@@ -3,11 +3,22 @@
 import { db } from '@/lib/supabase';
 import { requireManager } from '@/lib/session';
 import { redirect } from 'next/navigation';
+import type { BetType } from '@/types/db';
 
 export type BetSlipState = {
   error?: string;
   success?: boolean;
 };
+
+// The three optional player props, in display order. Each maps a form field to a
+// bet_type; the field value is a footballer UUID (or '' for none).
+const PROP_FIELDS: { field: string; betType: BetType }[] = [
+  { field: 'first_scorer', betType: 'first_scorer' },
+  { field: 'anytime_scorer', betType: 'anytime_scorer' },
+  { field: 'carded', betType: 'carded' },
+];
+
+const MAX_PROPS = 2;
 
 export async function submitBet(
   matchId: string,
@@ -24,7 +35,7 @@ export async function submitBet(
   // Load match — enforce lock server-side in UTC
   const { data: match } = await db
     .from('matches')
-    .select('id, kickoff_at, status')
+    .select('id, kickoff_at, status, home_team_id, away_team_id')
     .eq('id', matchId)
     .single();
 
@@ -38,8 +49,17 @@ export async function submitBet(
   const awayScoreRaw = formData.get('away_score') as string | null;
   const hasExactScore = homeScoreRaw !== null && homeScoreRaw !== '' && awayScoreRaw !== null && awayScoreRaw !== '';
 
-  if (!outcomeResult && !hasExactScore) {
-    return { error: 'Place at least one bet — outcome or exact score.' };
+  // Collect chosen props (non-empty selects)
+  const chosenProps = PROP_FIELDS
+    .map(p => ({ ...p, footballerId: (formData.get(p.field) as string | null)?.trim() || '' }))
+    .filter(p => p.footballerId !== '');
+
+  if (!outcomeResult && !hasExactScore && chosenProps.length === 0) {
+    return { error: 'Place at least one bet.' };
+  }
+
+  if (chosenProps.length > MAX_PROPS) {
+    return { error: `Pick at most ${MAX_PROPS} player props.` };
   }
 
   // Validate exact score values
@@ -57,6 +77,22 @@ export async function submitBet(
     }
   }
 
+  // Validate picked footballers belong to one of the two teams in this match
+  if (chosenProps.length > 0) {
+    const { data: validPlayers } = await db
+      .from('footballers')
+      .select('id')
+      .in('team_id', [match.home_team_id, match.away_team_id]);
+    const validIds = new Set((validPlayers ?? []).map(p => p.id as string));
+    if (chosenProps.some(p => !validIds.has(p.footballerId))) {
+      return { error: 'A selected player is not in this match.' };
+    }
+  }
+
+  if (outcomeResult && !['home', 'draw', 'away'].includes(outcomeResult)) {
+    return { error: 'Invalid outcome selection.' };
+  }
+
   // Replace any existing pending bets for this manager + match
   await db
     .from('bets')
@@ -65,33 +101,19 @@ export async function submitBet(
     .eq('match_id', matchId)
     .eq('status', 'pending');
 
-  const newBets = [];
+  const base = { manager_id: managerId, match_id: matchId, stake_coins: 0, stake_mult: 1.0, locked_at: match.kickoff_at };
+  const newBets: Array<Record<string, unknown>> = [];
 
   if (outcomeResult) {
-    if (!['home', 'draw', 'away'].includes(outcomeResult)) {
-      return { error: 'Invalid outcome selection.' };
-    }
-    newBets.push({
-      manager_id: managerId,
-      match_id: matchId,
-      bet_type: 'outcome',
-      selection: { result: outcomeResult },
-      stake_coins: 0,
-      stake_mult: 1.0,
-      locked_at: match.kickoff_at,
-    });
+    newBets.push({ ...base, bet_type: 'outcome', selection: { result: outcomeResult } });
   }
 
   if (homeScore !== null && awayScore !== null) {
-    newBets.push({
-      manager_id: managerId,
-      match_id: matchId,
-      bet_type: 'exact_score',
-      selection: { home: homeScore, away: awayScore },
-      stake_coins: 0,
-      stake_mult: 1.0,
-      locked_at: match.kickoff_at,
-    });
+    newBets.push({ ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore } });
+  }
+
+  for (const p of chosenProps) {
+    newBets.push({ ...base, bet_type: p.betType, selection: { footballer_id: p.footballerId } });
   }
 
   const { error } = await db.from('bets').insert(newBets);

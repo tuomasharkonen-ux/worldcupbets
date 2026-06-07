@@ -8,19 +8,19 @@ Build order is deliberately **vertical then horizontal**: get one thin slice wor
 
 ## 📍 Current status (as of 2026-06-07)
 
-**Phases 0 and 1 are complete and deployed to production** at <https://worldcupbets.vercel.app>. The full core loop (join → bet → lock → settle → leaderboard) has been verified end-to-end with a synthetic test match. The app is ready for the June 11 kickoff.
+**Phases 0, 1, and 2 are complete.** The core loop (join → bet → lock → settle → leaderboard) is deployed at <https://worldcupbets.vercel.app> and verified end-to-end. Phase 2 (player props) is built and unit-tested (21 settlement tests green); it goes live once squads are synced via the `squads-sync` endpoint.
 
 | Phase | Status |
 | --- | --- |
 | 0 — Foundations | ✅ Done |
 | 1 — Core betting loop (MVP) | ✅ Done |
-| 2 — Player props | ⬜ Not started |
+| 2 — Player props | ✅ Done |
 | 3 — Coins + hybrid staking | 🟡 Partial (schema, config, and leaderboard coin display exist; `stake_mult` applied in engine; no staking UI or coin income yet) |
 | 4 — Stat Leader prop | ⬜ Not started |
 | 5 — Shop | ⬜ Not started |
 | 6 — Draft / auction | ⬜ Not started |
 
-**Remaining before kickoff:** trigger `fixtures-sync` once football-data.org publishes the WC2026 schedule; share the link + passcode with the five managers.
+**Goal:** the app should be **feature-complete before June 11**. `fixtures-sync` has run (WC2026 schedule loaded). The link + passcode go out to the five managers the day before kickoff — everything must be done by then.
 
 ---
 
@@ -58,13 +58,15 @@ Goal: the whole game in its simplest form, on bulletproof data only.
 
 Goal: the prop layer, still on football-data.org only (no Sofascore yet).
 
-- [ ] Squad/roster sync into `footballers` (after final squads confirmed ~June 1).
-- [ ] `match_events` ingestion (goals, cards, own goals) in `settle`.
-- [ ] Prop bets: First Goalscorer, Anytime Goalscorer, Carded. Pick up to 2.
-- [ ] Void logic for players who didn't appear.
-- [ ] Settlement extended for props.
+- [x] Squad/roster sync into `footballers` — `GET /api/cron/squads-sync` (manual-trigger, `CRON_SECRET`-guarded). Upserts on `fd_player_id` so footballer UUIDs stay stable (bet selections reference them). **Run once after final squads confirm.**
+- [x] `match_events` ingestion (goals, cards, own goals) in `settle` — fetches match detail from football-data only when the match has prop bets; maps `fd_player_id → footballer_id`; idempotent delete-then-insert. Fetch failure leaves the match unsettled to retry next run rather than mis-settling props.
+- [x] Prop bets: First Goalscorer, Anytime Goalscorer, Carded. Pick up to 2 (enforced client + server). UI: per-team player `<select>`s in the bet slip; props open once squads exist.
+- [x] Void logic for players who didn't appear — `match_appearances` table + `appearances` in the pure engine. Voids only when lineup data proves non-appearance; falls back to `lost` when lineups are absent (documented in `DATA_MODEL.md`).
+- [x] Settlement extended for props — `settleScorerProp` (first/anytime, own-goal-excluded, penalty counts) + `settleCarded`, all pure and covered by 11 new unit tests. Props award Glory only; prop Coins are Phase 3.
 
-**Done when:** "who scores first" bets settle correctly off real events, including the own-goal exclusion.
+**Done when:** "who scores first" bets settle correctly off real events, including the own-goal exclusion. ✅ Verified by unit tests against synthetic events; live verification awaits real fixtures + a squad sync.
+
+> Schema: migration `002_phase2_props.sql` adds prop Glory values to `league.config`, the `match_appearances` table, and a unique index on `footballers.fd_player_id`. Apply it to production before settling any prop bets.
 
 ---
 
