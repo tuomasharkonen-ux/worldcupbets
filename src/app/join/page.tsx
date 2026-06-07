@@ -19,7 +19,7 @@ export default async function JoinPage({
     <main className="min-h-screen flex items-center justify-center bg-zinc-950 px-4">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center space-y-1">
-          <h1 className="text-3xl font-bold text-white tracking-tight">Gambit</h1>
+          <h1 className="text-3xl font-bold text-white tracking-tight">World Cup Bets</h1>
           <p className="text-zinc-400 text-sm">WC 2026 — five-player betting league</p>
         </div>
 

@@ -1,4 +1,4 @@
-# Game Design — Gambit
+# Game Design — World Cup Bets
 
 This is the rules-of-play spec. Every number here is a starting value, deliberately exposed so it's easy to tune. Treat the constants as config (a single `game_config` row / file), not magic numbers scattered through the code.
 

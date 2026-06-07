@@ -1,4 +1,4 @@
--- Gambit — initial schema
+-- World Cup Bets — initial schema
 -- Apply via Supabase SQL editor or: supabase db push
 
 -- ─── league ──────────────────────────────────────────────────────────────────

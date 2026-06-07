@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Gambit — WC 2026',
+  title: 'World Cup Bets',
   description: 'Five-player World Cup betting league',
 };
 

@@ -7,7 +7,7 @@ export interface SessionData {
 }
 
 const sessionOptions: SessionOptions = {
-  cookieName: 'gambit_session',
+  cookieName: 'wcbets_session',
   password: process.env.SESSION_PASSWORD as string,
   cookieOptions: {
     secure: process.env.NODE_ENV === 'production',

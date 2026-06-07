@@ -1,4 +1,4 @@
-# Data Model — Gambit
+# Data Model — World Cup Bets
 
 Postgres (Supabase). Schema is written to be readable as a migration. Naming convention to avoid the classic trap: the **five humans are `managers`**, the **footballers on the pitch are `footballers`**. Never call a human a "player."
 

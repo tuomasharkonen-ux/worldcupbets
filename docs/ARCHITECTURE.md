@@ -1,4 +1,4 @@
-# Architecture — Gambit
+# Architecture — World Cup Bets
 
 ## 1. The big picture
 

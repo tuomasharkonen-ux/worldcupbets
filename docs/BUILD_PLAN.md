@@ -1,4 +1,4 @@
-# Build Plan — Gambit
+# Build Plan — World Cup Bets
 
 Build order is deliberately **vertical then horizontal**: get one thin slice working end-to-end (bet → lock → settle → leaderboard) before adding mechanics. Each phase should be shippable and playable on its own. The whole thing is sized for solo-with-AI-assistance over a few focused sessions before June 11.
 
