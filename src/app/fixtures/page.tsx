@@ -6,6 +6,7 @@ import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Flag } from '@/components/ui/flag';
 import type { Match, Team } from '@/types/db';
 
 const TIMEZONE = 'Europe/Helsinki';
@@ -88,8 +89,9 @@ export default async function FixturesPage() {
 
         {/* Middle: teams + score/vs */}
         <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-          <span className="truncate text-right font-display font-semibold text-foreground">
-            {m.home_team?.name ?? '—'}
+          <span className="flex min-w-0 items-center justify-end gap-2 font-display font-semibold text-foreground">
+            <span className="truncate">{m.home_team?.name ?? '—'}</span>
+            {m.home_team && <Flag name={m.home_team.name} countryCode={m.home_team.country_code} size="sm" />}
           </span>
           {isFinished && m.home_score != null ? (
             <span className="rounded-lg bg-surface-3 px-2.5 py-1 font-mono text-lg font-bold tabular-nums text-foreground">
@@ -98,8 +100,9 @@ export default async function FixturesPage() {
           ) : (
             <span className="text-xs font-medium uppercase text-subtle">vs</span>
           )}
-          <span className="truncate font-display font-semibold text-foreground">
-            {m.away_team?.name ?? '—'}
+          <span className="flex min-w-0 items-center gap-2 font-display font-semibold text-foreground">
+            {m.away_team && <Flag name={m.away_team.name} countryCode={m.away_team.country_code} size="sm" />}
+            <span className="truncate">{m.away_team?.name ?? '—'}</span>
           </span>
         </div>
 

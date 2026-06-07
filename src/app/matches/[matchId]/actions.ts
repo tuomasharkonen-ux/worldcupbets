@@ -18,7 +18,9 @@ const PROP_FIELDS: { field: string; betType: BetType }[] = [
   { field: 'carded', betType: 'carded' },
 ];
 
-const MAX_PROPS = 2;
+// One prop slot for now (more slots are planned). The engine already supports
+// multiple prop bets per match, so raising this is the only change needed here.
+const MAX_PROP_SLOTS = 1;
 
 export async function submitBet(
   matchId: string,
@@ -54,27 +56,26 @@ export async function submitBet(
     .map(p => ({ ...p, footballerId: (formData.get(p.field) as string | null)?.trim() || '' }))
     .filter(p => p.footballerId !== '');
 
-  if (!outcomeResult && !hasExactScore && chosenProps.length === 0) {
-    return { error: 'Place at least one bet.' };
+  // Core bets are mandatory.
+  if (!outcomeResult) {
+    return { error: 'Pick a match outcome.' };
   }
-
-  if (chosenProps.length > MAX_PROPS) {
-    return { error: `Pick at most ${MAX_PROPS} player props.` };
+  if (!hasExactScore) {
+    return { error: 'Enter an exact score.' };
+  }
+  if (chosenProps.length > MAX_PROP_SLOTS) {
+    return { error: `Only ${MAX_PROP_SLOTS} player prop allowed for now.` };
   }
 
   // Validate exact score values
-  let homeScore: number | null = null;
-  let awayScore: number | null = null;
-  if (hasExactScore) {
-    homeScore = parseInt(homeScoreRaw!, 10);
-    awayScore = parseInt(awayScoreRaw!, 10);
-    if (
-      isNaN(homeScore) || isNaN(awayScore) ||
-      homeScore < 0 || awayScore < 0 ||
-      homeScore > 20 || awayScore > 20
-    ) {
-      return { error: 'Exact score values must be between 0 and 20.' };
-    }
+  const homeScore = parseInt(homeScoreRaw!, 10);
+  const awayScore = parseInt(awayScoreRaw!, 10);
+  if (
+    isNaN(homeScore) || isNaN(awayScore) ||
+    homeScore < 0 || awayScore < 0 ||
+    homeScore > 20 || awayScore > 20
+  ) {
+    return { error: 'Exact score values must be between 0 and 20.' };
   }
 
   // Validate picked footballers belong to one of the two teams in this match
@@ -89,7 +90,7 @@ export async function submitBet(
     }
   }
 
-  if (outcomeResult && !['home', 'draw', 'away'].includes(outcomeResult)) {
+  if (!['home', 'draw', 'away'].includes(outcomeResult)) {
     return { error: 'Invalid outcome selection.' };
   }
 
@@ -102,15 +103,10 @@ export async function submitBet(
     .eq('status', 'pending');
 
   const base = { manager_id: managerId, match_id: matchId, stake_coins: 0, stake_mult: 1.0, locked_at: match.kickoff_at };
-  const newBets: Array<Record<string, unknown>> = [];
-
-  if (outcomeResult) {
-    newBets.push({ ...base, bet_type: 'outcome', selection: { result: outcomeResult } });
-  }
-
-  if (homeScore !== null && awayScore !== null) {
-    newBets.push({ ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore } });
-  }
+  const newBets: Array<Record<string, unknown>> = [
+    { ...base, bet_type: 'outcome', selection: { result: outcomeResult } },
+    { ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore } },
+  ];
 
   for (const p of chosenProps) {
     newBets.push({ ...base, bet_type: p.betType, selection: { footballer_id: p.footballerId } });

@@ -7,6 +7,7 @@ import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BetSlip, type SlipSquads } from './BetSlip';
+import { Flag } from '@/components/ui/flag';
 import type { Bet, Footballer, Match, Team } from '@/types/db';
 
 type PropField = 'first_scorer' | 'anytime_scorer' | 'carded';
@@ -67,11 +68,11 @@ export default async function MatchPage({
   // Squads for the prop pickers (null until squads-sync has populated them).
   const { data: footballers } = await db
     .from('footballers')
-    .select('id, name, squad_number, team_id')
+    .select('id, name, squad_number, position, team_id')
     .in('team_id', [match.home_team_id, match.away_team_id])
     .order('squad_number', { ascending: true });
 
-  const players = (footballers ?? []) as Pick<Footballer, 'id' | 'name' | 'squad_number' | 'team_id'>[];
+  const players = (footballers ?? []) as Pick<Footballer, 'id' | 'name' | 'squad_number' | 'position' | 'team_id'>[];
   const playerName = new Map(players.map(p => [p.id, p.name]));
   const squads: SlipSquads | null = players.length > 0
     ? {
@@ -86,11 +87,11 @@ export default async function MatchPage({
   const outcomeBet = bets.find(b => b.bet_type === 'outcome');
   const exactBet = bets.find(b => b.bet_type === 'exact_score');
 
-  const propSelections: Partial<Record<PropField, string>> = {};
-  for (const field of Object.keys(PROP_LABELS) as PropField[]) {
-    const bet = bets.find(b => b.bet_type === field);
-    if (bet) propSelections[field] = (bet.selection as { footballer_id: string }).footballer_id;
-  }
+  // One prop slot for now: take the first prop bet on the slip, if any.
+  const propBet = bets.find(b => (Object.keys(PROP_LABELS) as PropField[]).includes(b.bet_type as PropField));
+  const propSlot = propBet
+    ? { type: propBet.bet_type as PropField, playerId: (propBet.selection as { footballer_id: string }).footballer_id }
+    : null;
 
   const existingForSlip = {
     outcome: outcomeBet
@@ -99,7 +100,7 @@ export default async function MatchPage({
     exactScore: exactBet
       ? (exactBet.selection as { home: number; away: number })
       : undefined,
-    props: propSelections,
+    propSlot,
   };
 
   const stageLabel = match.group_label ? `Group ${match.group_label}` : match.stage.toUpperCase();
@@ -139,8 +140,9 @@ export default async function MatchPage({
           </div>
 
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-            <span className="text-right font-display text-lg font-bold leading-tight text-foreground">
-              {match.home_team.name}
+            <span className="flex min-w-0 items-center justify-end gap-2 font-display text-lg font-bold leading-tight text-foreground">
+              <span className="truncate">{match.home_team.name}</span>
+              <Flag name={match.home_team.name} countryCode={match.home_team.country_code} size="md" />
             </span>
             {isFinished && match.home_score != null ? (
               <span className="rounded-xl bg-surface-3 px-3 py-1.5 font-mono text-2xl font-bold tabular-nums text-foreground">
@@ -149,8 +151,9 @@ export default async function MatchPage({
             ) : (
               <span className="text-sm font-medium uppercase text-subtle">vs</span>
             )}
-            <span className="font-display text-lg font-bold leading-tight text-foreground">
-              {match.away_team.name}
+            <span className="flex min-w-0 items-center gap-2 font-display text-lg font-bold leading-tight text-foreground">
+              <Flag name={match.away_team.name} countryCode={match.away_team.country_code} size="md" />
+              <span className="truncate">{match.away_team.name}</span>
             </span>
           </div>
 

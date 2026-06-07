@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { Fredoka, Plus_Jakarta_Sans, Geist_Mono } from 'next/font/google';
+import 'flag-icons/css/flag-icons.min.css';
 import './globals.css';
 
 // Display — rounded & bubbly, for headings and the wordmark
