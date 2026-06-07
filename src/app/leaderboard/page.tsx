@@ -1,8 +1,17 @@
 import { redirect } from 'next/navigation';
+import { Trophy, Crown, Medal, Coins, Sparkles } from 'lucide-react';
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import type { Manager } from '@/types/db';
+
+const MEDAL = [
+  { Icon: Crown, color: 'text-glory' }, // 1st
+  { Icon: Medal, color: 'text-[#cbd5e1]' }, // 2nd — silver
+  { Icon: Medal, color: 'text-[#d9883e]' }, // 3rd — bronze
+];
 
 export default async function LeaderboardPage() {
   const session = await getSession();
@@ -18,44 +27,63 @@ export default async function LeaderboardPage() {
   return (
     <>
       <Nav />
-      <main className="mx-auto max-w-4xl px-4 py-8">
-        <h1 className="text-xl font-semibold text-white mb-6">Leaderboard</h1>
+      <main className="mx-auto max-w-2xl px-4 py-8">
+        <div className="mb-6 flex items-center gap-2.5">
+          <Trophy className="size-7 text-glory" aria-hidden />
+          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+            Leaderboard
+          </h1>
+        </div>
 
         {rows.length === 0 ? (
-          <p className="text-zinc-500 text-sm">No managers have joined yet.</p>
+          <Card className="text-center text-sm text-muted">No managers have joined yet.</Card>
         ) : (
-          <div className="overflow-hidden rounded-lg border border-zinc-800">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-zinc-800 bg-zinc-900">
-                  <th className="py-2.5 px-4 text-left text-xs font-medium text-zinc-400 w-8">#</th>
-                  <th className="py-2.5 px-4 text-left text-xs font-medium text-zinc-400">Manager</th>
-                  <th className="py-2.5 px-4 text-right text-xs font-medium text-zinc-400">Glory</th>
-                  <th className="py-2.5 px-4 text-right text-xs font-medium text-zinc-400">Coins</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((m, i) => (
-                  <tr
+          <Card variant="glass" padding="sm">
+            <ul className="space-y-1.5">
+              {rows.map((m, i) => {
+                const isYou = m.id === session.managerId;
+                const medal = MEDAL[i];
+                return (
+                  <li
                     key={m.id}
-                    className={`border-b border-zinc-800 last:border-0 ${
-                      m.id === session.managerId ? 'bg-indigo-950/30' : 'bg-zinc-950'
+                    className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
+                      isYou
+                        ? 'bg-[color-mix(in_oklab,var(--color-primary-bright)_16%,transparent)] ring-1 ring-[var(--color-primary-bright)]/40'
+                        : 'bg-surface-2/60'
                     }`}
                   >
-                    <td className="py-3 px-4 text-zinc-500">{i + 1}</td>
-                    <td className="py-3 px-4 font-medium text-white">
-                      {m.display_name}
-                      {m.id === session.managerId && (
-                        <span className="ml-2 text-xs text-indigo-400">you</span>
+                    <span className="grid w-8 shrink-0 place-items-center">
+                      {medal ? (
+                        <medal.Icon className={`size-6 ${medal.color}`} aria-label={`Rank ${i + 1}`} />
+                      ) : (
+                        <span className="font-mono text-sm font-semibold text-subtle">{i + 1}</span>
                       )}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono text-amber-400">{m.glory} GP</td>
-                    <td className="py-3 px-4 text-right font-mono text-zinc-300">{m.coins} ¢</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                    </span>
+
+                    <span className="min-w-0 flex-1 truncate font-display font-semibold text-foreground">
+                      {m.display_name}
+                      {isYou && (
+                        <Badge variant="primary" size="sm" className="ml-2 align-middle">
+                          you
+                        </Badge>
+                      )}
+                    </span>
+
+                    <span className="flex items-center gap-1.5 font-mono tabular-nums text-glory">
+                      <Sparkles className="size-4" aria-hidden />
+                      <span className="font-semibold">{m.glory}</span>
+                      <span className="text-xs text-glory/70">GP</span>
+                    </span>
+
+                    <span className="flex w-20 items-center justify-end gap-1.5 font-mono tabular-nums text-muted">
+                      <Coins className="size-4" aria-hidden />
+                      {m.coins}
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </Card>
         )}
       </main>
     </>

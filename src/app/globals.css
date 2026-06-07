@@ -1,26 +1,125 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* =============================================================================
+   World Cup Bets — design tokens
+   Bold & playful: chunky 3D controls, glassmorphic surfaces, large radii.
+   Dark theme on an indigo-navy canvas so glass and glows read with depth.
+   Colours are tuned for WCAG AA (see contrast notes beside each text token).
+   ========================================================================== */
+@theme {
+  /* --- Surfaces (dark, indigo-tinted) --- */
+  --color-background: #0d0b1a;     /* app canvas */
+  --color-surface: #17142a;        /* solid cards / nav */
+  --color-surface-2: #221d3d;      /* raised: inputs, hovered rows */
+  --color-surface-3: #2d2750;      /* pressed / active wells */
+
+  /* --- Borders (translucent so they sit on any surface) --- */
+  --color-border: rgba(255, 255, 255, 0.10);
+  --color-border-strong: rgba(255, 255, 255, 0.20);
+
+  /* --- Text (contrast ratios vs --background) --- */
+  --color-foreground: #f4f2ff;     /* ~17:1  primary text */
+  --color-muted: #c0bbd9;          /* ~9:1   secondary text, labels */
+  --color-subtle: #9a95b8;         /* ~5:1   hints, timestamps (still AA) */
+
+  /* --- Primary: violet-indigo. White text on --primary is ~5.6:1 (AA). --- */
+  --color-primary: #4f46e5;        /* solid actions */
+  --color-primary-hover: #5851ea;
+  --color-primary-press: #3a32b5;  /* darker base for the 3D "lip" */
+  --color-primary-bright: #9b8cff; /* glows, focus ring, top highlight */
+  --color-on-primary: #ffffff;
+
+  /* --- Secondary accent: playful pink (decorative / glows, not text-bg) --- */
+  --color-accent: #f472b6;
+  --color-accent-press: #be3f86;
+
+  /* --- Semantic --- */
+  --color-glory: #fbbf24;          /* Glory points — gold */
+  --color-glory-press: #b8860b;
+  --color-success: #34d399;        /* ~9:1 as text on dark */
+  --color-danger: #fb7185;         /* ~6:1 as text on dark */
+
+  /* --- Radii: large & bubbly --- */
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+  --radius-2xl: 1.5rem;
+  --radius-3xl: 2rem;
+
+  /* --- Fonts (wired to next/font CSS vars in layout.tsx) --- */
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-fredoka), var(--font-jakarta), sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+/* =============================================================================
+   Base
+   ========================================================================== */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+  body {
+    background: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+    /* Soft colour blobs behind everything so glass surfaces have something to
+       refract. Fixed + low-opacity so they read as ambient depth, not noise. */
+    background-image:
+      radial-gradient(60rem 60rem at 12% -10%, rgba(124, 92, 255, 0.18), transparent 60%),
+      radial-gradient(50rem 50rem at 100% 0%, rgba(244, 114, 182, 0.12), transparent 55%),
+      radial-gradient(45rem 45rem at 50% 120%, rgba(79, 70, 229, 0.16), transparent 60%);
+    background-attachment: fixed;
+  }
+
+  /* One consistent, visible focus ring everywhere (accessibility) */
+  :focus-visible {
+    outline: 2px solid var(--color-primary-bright);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--color-primary);
+    color: var(--color-on-primary);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* =============================================================================
+   Utilities — glass + 3D chunk, reusable across components
+   ========================================================================== */
+
+/* Frosted glass panel. Use over the body blobs for the modern depth effect. */
+@utility glass {
+  background: color-mix(in oklab, var(--color-surface) 70%, transparent);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--color-border);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 10px 30px -12px rgba(0, 0, 0, 0.6);
+}
+
+/* Stronger, more opaque glass for primary content cards. */
+@utility glass-strong {
+  background: color-mix(in oklab, var(--color-surface) 88%, transparent);
+  backdrop-filter: blur(20px) saturate(150%);
+  -webkit-backdrop-filter: blur(20px) saturate(150%);
+  border: 1px solid var(--color-border);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.10),
+    0 16px 40px -16px rgba(0, 0, 0, 0.7);
+}
+
+/* Subtle text glow for hero / display headings. */
+@utility text-glow {
+  text-shadow: 0 0 24px color-mix(in oklab, var(--color-primary-bright) 50%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

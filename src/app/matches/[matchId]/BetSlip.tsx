@@ -2,18 +2,32 @@
 
 import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
+import { AlertCircle, CheckCircle2, Loader2, Lock, Save } from 'lucide-react';
 import { submitBet, type BetSlipState } from './actions';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 function SubmitButton({ locked }: { locked: boolean }) {
   const { pending } = useFormStatus();
   return (
-    <button
-      type="submit"
-      disabled={pending || locked}
-      className="w-full rounded-lg bg-indigo-600 py-2.5 text-sm font-semibold text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-    >
-      {pending ? 'Saving…' : locked ? 'Locked' : 'Save bets'}
-    </button>
+    <Button type="submit" size="lg" disabled={pending || locked} className="w-full">
+      {pending ? (
+        <>
+          <Loader2 className="size-5 animate-spin" aria-hidden />
+          Saving…
+        </>
+      ) : locked ? (
+        <>
+          <Lock className="size-5" aria-hidden />
+          Locked
+        </>
+      ) : (
+        <>
+          <Save className="size-5" aria-hidden />
+          Save bets
+        </>
+      )}
+    </Button>
   );
 }
 
@@ -35,33 +49,40 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props
   return (
     <form action={formAction} className="space-y-6">
       {state.error && (
-        <div className="rounded-lg border border-red-800 bg-red-950/50 px-3 py-2 text-sm text-red-300">
-          {state.error}
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-xl border border-danger/30 bg-[color-mix(in_oklab,var(--color-danger)_14%,transparent)] px-3 py-2.5 text-sm text-danger"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>{state.error}</span>
         </div>
       )}
       {state.success && (
-        <div className="rounded-lg border border-green-800 bg-green-950/50 px-3 py-2 text-sm text-green-300">
-          Bets saved.
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-xl border border-success/30 bg-[color-mix(in_oklab,var(--color-success)_14%,transparent)] px-3 py-2.5 text-sm text-success"
+        >
+          <CheckCircle2 className="size-4 shrink-0" aria-hidden />
+          <span>Bets saved.</span>
         </div>
       )}
 
       {/* Outcome */}
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium text-zinc-300">
-          Match outcome{' '}
-          <span className="text-zinc-500 font-normal">(optional)</span>
+      <fieldset className="space-y-2.5">
+        <legend className="text-sm font-medium text-muted">
+          Match outcome <span className="font-normal text-subtle">(optional)</span>
         </legend>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2.5">
           {(['home', 'draw', 'away'] as const).map(opt => {
-            const label =
-              opt === 'home' ? homeTeam : opt === 'away' ? awayTeam : 'Draw';
+            const label = opt === 'home' ? homeTeam : opt === 'away' ? awayTeam : 'Draw';
             return (
               <label
                 key={opt}
-                className={`relative flex cursor-pointer flex-col items-center rounded-lg border px-3 py-3 text-sm transition-colors
-                  ${locked ? 'cursor-not-allowed opacity-50' : ''}
-                  has-[:checked]:border-indigo-500 has-[:checked]:bg-indigo-950/30
-                  border-zinc-700 bg-zinc-900 hover:border-zinc-600`}
+                className={`group relative flex cursor-pointer flex-col items-center justify-center rounded-2xl border bg-surface-2 px-3 py-4 text-center font-display text-sm font-semibold leading-tight text-foreground transition-[transform,border-color,background-color,box-shadow]
+                  border-border hover:border-border-strong
+                  has-[:checked]:-translate-y-0.5 has-[:checked]:border-[var(--color-primary-bright)] has-[:checked]:bg-[color-mix(in_oklab,var(--color-primary-bright)_18%,transparent)] has-[:checked]:shadow-[0_4px_0_0_var(--color-primary-press)]
+                  has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-primary-bright)]
+                  ${locked ? 'cursor-not-allowed opacity-50' : ''}`}
               >
                 <input
                   type="radio"
@@ -71,20 +92,19 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props
                   defaultChecked={existing.outcome === opt}
                   className="sr-only"
                 />
-                <span className="font-medium text-white text-center leading-tight">{label}</span>
+                {label}
               </label>
             );
           })}
         </div>
-        {/* Clear outcome option */}
         {!locked && (
-          <label className="flex items-center gap-2 cursor-pointer text-xs text-zinc-500">
+          <label className="flex cursor-pointer items-center gap-2 text-xs text-subtle">
             <input
               type="radio"
               name="outcome"
               value=""
               defaultChecked={!existing.outcome}
-              className="accent-zinc-500"
+              className="size-3.5 accent-[var(--color-primary)]"
             />
             No outcome bet
           </label>
@@ -92,15 +112,18 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props
       </fieldset>
 
       {/* Exact score */}
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-medium text-zinc-300">
+      <fieldset className="space-y-2.5">
+        <legend className="text-sm font-medium text-muted">
           Exact score{' '}
-          <span className="text-zinc-500 font-normal">(optional, +15 GP bonus)</span>
+          <span className="font-normal text-glory">(optional, +15 GP bonus)</span>
         </legend>
-        <div className="flex items-center gap-3">
-          <div className="flex-1">
-            <label className="block text-xs text-zinc-400 mb-1 truncate">{homeTeam}</label>
-            <input
+        <div className="flex items-end gap-3">
+          <div className="flex-1 space-y-1">
+            <label htmlFor="home_score" className="block truncate text-xs text-subtle">
+              {homeTeam}
+            </label>
+            <Input
+              id="home_score"
               type="number"
               name="home_score"
               min={0}
@@ -108,13 +131,16 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props
               disabled={locked}
               defaultValue={existing.exactScore?.home ?? ''}
               placeholder="—"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-center text-white text-lg font-mono placeholder-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+              className="text-center font-mono text-lg"
             />
           </div>
-          <span className="text-zinc-500 text-xl font-light pt-5">:</span>
-          <div className="flex-1">
-            <label className="block text-xs text-zinc-400 mb-1 truncate">{awayTeam}</label>
-            <input
+          <span className="pb-2.5 font-mono text-xl font-light text-subtle">:</span>
+          <div className="flex-1 space-y-1">
+            <label htmlFor="away_score" className="block truncate text-xs text-subtle">
+              {awayTeam}
+            </label>
+            <Input
+              id="away_score"
               type="number"
               name="away_score"
               min={0}
@@ -122,11 +148,11 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props
               disabled={locked}
               defaultValue={existing.exactScore?.away ?? ''}
               placeholder="—"
-              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-center text-white text-lg font-mono placeholder-zinc-600 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 disabled:opacity-50"
+              className="text-center font-mono text-lg"
             />
           </div>
         </div>
-        <p className="text-xs text-zinc-500">Leave both empty to skip the exact score bet.</p>
+        <p className="text-xs text-subtle">Leave both empty to skip the exact score bet.</p>
       </fieldset>
 
       <SubmitButton locked={locked} />

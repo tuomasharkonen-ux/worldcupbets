@@ -107,6 +107,20 @@ Goal: the strategic + PvP layer.
 
 **Done when:** you can Jinx the leader before a big match and watch it bite at settlement, and a Ward blocks it.
 
+### Design system — DONE (pre-kickoff)
+
+The bold/playful design system landed ahead of the feature phases (see
+[`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)): semantic tokens, chunky 3D `Button`,
+glass `Card`, `Badge`, `Input`, lucide icons, AA contrast. All five existing
+screens were migrated onto it.
+
+- Build the Shop's UI (cards, currency chips, owned/spent states, sabotage
+  confirmations) on these primitives — don't hand-roll.
+- Add a `ui/` component only when a pattern repeats; add a token when a new
+  semantic colour appears (e.g. a dedicated "sabotage" treatment beyond
+  `accent`). A `Dialog`/`Tabs` primitive will likely be the first additions
+  here (Radix is already a dependency via the Button's Slot).
+
 ---
 
 ## Phase 6 — Draft / auction (post-v1, optional)

@@ -12,7 +12,8 @@ Phases 0 and 1 are **complete and deployed**. The core loop — join → bet →
 
 ## Stack
 
-- **Next.js (App Router) + TypeScript + Tailwind** — server components for reads, server actions for writes.
+- **Next.js (App Router) + TypeScript + Tailwind v4** — server components for reads, server actions for writes.
+- **Design system** — bold/playful: 3D buttons, glassmorphism, lucide icons, WCAG AA. Semantic tokens + `ui/` primitives (CVA + Radix Slot). See [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md).
 - **Supabase Postgres** — game state. Accessed server-side with the service-role key; RLS intentionally off (trust model is "five friends").
 - **iron-session** — passcode join flow → signed cookie. No passwords, no email.
 - **Vercel** — hosting + the `fixtures-sync` cron.
@@ -37,11 +38,14 @@ src/
     leaderboard/          Glory + Coins ranking
     api/cron/             fixtures-sync, settle  (CRON_SECRET-guarded)
     api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
+  components/
+    Nav.tsx               top navigation (glass)
+    ui/                   design-system primitives: button, card, badge, input
   settlement/             pure, unit-tested engine + types + fixtures
-  lib/                    supabase client, session, cron auth
+  lib/                    supabase client, session, cron auth, cn() class helper
   types/                  hand-written DB types mirroring the schema
 supabase/migrations/      001_initial_schema.sql  (the source of truth for the schema)
-docs/                     ARCHITECTURE, DATA_MODEL, GAME_DESIGN, BUILD_PLAN
+docs/                     ARCHITECTURE, DATA_MODEL, GAME_DESIGN, BUILD_PLAN, DESIGN_SYSTEM
 ```
 
 ## Local development
