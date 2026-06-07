@@ -1,0 +1,42 @@
+{
+  "match": {
+    "id": "match-001",
+    "fd_match_id": 12345,
+    "sofa_match_id": null,
+    "stage": "group",
+    "group_label": "A",
+    "home_team_id": "team-bra",
+    "away_team_id": "team-ger",
+    "kickoff_at": "2026-06-15T17:00:00Z",
+    "status": "finished",
+    "home_score": 2,
+    "away_score": 1,
+    "glory_multiplier": 1.0,
+    "settled_at": null
+  },
+  "config": {
+    "glory": {
+      "outcome_correct": 10,
+      "exact_score_bonus": 15,
+      "participation": 2
+    },
+    "coins": {
+      "starting_balance": 100,
+      "participation": 5,
+      "correct_bet": 10
+    },
+    "stake": {
+      "multipliers": [1.0, 1.25, 1.5, 2.0],
+      "max_total_multiplier": 3.0
+    },
+    "glory_multipliers": {
+      "group": 1.0,
+      "r32": 1.25,
+      "r16": 1.5,
+      "qf": 1.75,
+      "sf": 1.75,
+      "third": 1.5,
+      "final": 2.0
+    }
+  }
+}
