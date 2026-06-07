@@ -34,8 +34,8 @@
   --color-accent-press: #be3f86;
 
   /* --- Semantic --- */
-  --color-glory: #fbbf24;          /* Glory points — gold */
-  --color-glory-press: #b8860b;
+  --color-points: #fbbf24;         /* Points — gold */
+  --color-points-press: #b8860b;
   --color-success: #34d399;        /* ~9:1 as text on dark */
   --color-danger: #fb7185;         /* ~6:1 as text on dark */
 

@@ -24,7 +24,7 @@ export interface CurrencyDelta {
 export interface BetUpdate {
   betId: string;
   status: 'won' | 'lost' | 'void';
-  gloryAwarded: number;
+  pointsAwarded: number;
 }
 
 export interface SettleResult {

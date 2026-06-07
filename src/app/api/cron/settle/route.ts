@@ -106,7 +106,7 @@ async function settleMatch(match: Match, league: League): Promise<void> {
   for (const update of result.betUpdates) {
     const { error } = await db
       .from('bets')
-      .update({ status: update.status, glory_awarded: update.gloryAwarded })
+      .update({ status: update.status, glory_awarded: update.pointsAwarded })
       .eq('id', update.betId);
     if (error) throw error;
   }
@@ -119,14 +119,14 @@ async function settleMatch(match: Match, league: League): Promise<void> {
       .select('currency, amount')
       .eq('manager_id', managerId);
 
-    const glory = (rows ?? [])
+    const points = (rows ?? [])
       .filter(r => r.currency === 'glory')
       .reduce((s, r) => s + r.amount, 0);
     const coins = (rows ?? [])
       .filter(r => r.currency === 'coins')
       .reduce((s, r) => s + r.amount, 0);
 
-    await db.from('managers').update({ glory, coins }).eq('id', managerId);
+    await db.from('managers').update({ glory: points, coins }).eq('id', managerId);
   }
 
   // 4. Mark match as settled

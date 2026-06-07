@@ -24,13 +24,13 @@ function makeBet(overrides: Partial<Bet>): Bet {
 const noEvents: MatchEvent[] = [];
 
 describe('outcome bet', () => {
-  test('correct home prediction wins glory', () => {
+  test('correct home prediction wins points', () => {
     const bet = makeBet({ selection: { result: 'home' } });
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
     const winUpdate = result.betUpdates.find(u => u.betId === 'bet-001');
     expect(winUpdate?.status).toBe('won');
-    expect(winUpdate?.gloryAwarded).toBe(10); // outcome_correct * mult 1.0 * stake_mult 1.0
+    expect(winUpdate?.pointsAwarded).toBe(10); // outcome_correct * mult 1.0 * stake_mult 1.0
   });
 
   test('wrong prediction loses', () => {
@@ -39,7 +39,7 @@ describe('outcome bet', () => {
 
     const update = result.betUpdates.find(u => u.betId === 'bet-001');
     expect(update?.status).toBe('lost');
-    expect(update?.gloryAwarded).toBe(0);
+    expect(update?.pointsAwarded).toBe(0);
   });
 
   test('draw prediction when score is not a draw loses', () => {
@@ -51,7 +51,7 @@ describe('outcome bet', () => {
 });
 
 describe('exact score bet', () => {
-  test('correct exact score wins outcome + bonus glory', () => {
+  test('correct exact score wins outcome + bonus points', () => {
     const bet = makeBet({
       id: 'bet-002',
       bet_type: 'exact_score',
@@ -61,7 +61,7 @@ describe('exact score bet', () => {
 
     const update = result.betUpdates.find(u => u.betId === 'bet-002');
     expect(update?.status).toBe('won');
-    expect(update?.gloryAwarded).toBe(25); // 10 + 15
+    expect(update?.pointsAwarded).toBe(25); // 10 + 15
   });
 
   test('wrong exact score loses', () => {
@@ -76,28 +76,28 @@ describe('exact score bet', () => {
   });
 });
 
-describe('glory multipliers', () => {
+describe('points multipliers', () => {
   const finalMatch: Match = { ...match, stage: 'final', glory_multiplier: 2.0 };
 
-  test('final match doubles glory', () => {
+  test('final match doubles points', () => {
     const bet = makeBet({ selection: { result: 'home' } });
     const result = settle({ match: finalMatch, bets: [bet], events: noEvents, config });
 
-    expect(result.betUpdates[0].gloryAwarded).toBe(20); // 10 * 2.0
+    expect(result.betUpdates[0].pointsAwarded).toBe(20); // 10 * 2.0
   });
 });
 
 describe('stake multiplier', () => {
-  test('stake_mult amplifies glory', () => {
+  test('stake_mult amplifies points', () => {
     const bet = makeBet({ selection: { result: 'home' }, stake_mult: 1.5, stake_coins: 20 });
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
-    expect(result.betUpdates[0].gloryAwarded).toBe(15); // 10 * 1.0 * 1.5
+    expect(result.betUpdates[0].pointsAwarded).toBe(15); // 10 * 1.0 * 1.5 (stake_mult amplifies points)
   });
 });
 
-describe('participation glory', () => {
-  test('each manager with a pending bet receives participation glory', () => {
+describe('participation points', () => {
+  test('each manager with a pending bet receives participation points', () => {
     const bets = [
       makeBet({ id: 'bet-a', manager_id: 'mgr-001' }),
       makeBet({ id: 'bet-b', manager_id: 'mgr-002' }),

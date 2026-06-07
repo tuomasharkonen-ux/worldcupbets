@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import type { Manager } from '@/types/db';
 
 const MEDAL = [
-  { Icon: Crown, color: 'text-glory' }, // 1st
+  { Icon: Crown, color: 'text-points' }, // 1st
   { Icon: Medal, color: 'text-[#cbd5e1]' }, // 2nd — silver
   { Icon: Medal, color: 'text-[#d9883e]' }, // 3rd — bronze
 ];
@@ -29,7 +29,7 @@ export default async function LeaderboardPage() {
       <Nav />
       <main className="mx-auto max-w-2xl px-4 py-8">
         <div className="mb-6 flex items-center gap-2.5">
-          <Trophy className="size-7 text-glory" aria-hidden />
+          <Trophy className="size-7 text-points" aria-hidden />
           <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
             Leaderboard
           </h1>
@@ -69,10 +69,10 @@ export default async function LeaderboardPage() {
                       )}
                     </span>
 
-                    <span className="flex items-center gap-1.5 font-mono tabular-nums text-glory">
+                    <span className="flex items-center gap-1.5 font-mono tabular-nums text-points">
                       <Sparkles className="size-4" aria-hidden />
                       <span className="font-semibold">{m.glory}</span>
-                      <span className="text-xs text-glory/70">GP</span>
+                      <span className="text-xs text-points/70">pts</span>
                     </span>
 
                     <span className="flex w-20 items-center justify-end gap-1.5 font-mono tabular-nums text-muted">

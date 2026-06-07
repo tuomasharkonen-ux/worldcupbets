@@ -84,7 +84,7 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
         status,
         home_score: m.score?.fullTime?.home ?? null,
         away_score: m.score?.fullTime?.away ?? null,
-        glory_multiplier: gloryMultiplier(stage),
+        glory_multiplier: pointsMultiplier(stage),
       },
       { onConflict: 'fd_match_id' },
     );
@@ -122,7 +122,7 @@ function mapStatus(fdStatus: string): string {
   return map[fdStatus] ?? 'scheduled';
 }
 
-function gloryMultiplier(stage: string): number {
+function pointsMultiplier(stage: string): number {
   const map: Record<string, number> = {
     group: 1.0,
     r32: 1.25,

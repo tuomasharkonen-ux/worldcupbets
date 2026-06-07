@@ -115,7 +115,7 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, existing }: Props
       <fieldset className="space-y-2.5">
         <legend className="text-sm font-medium text-muted">
           Exact score{' '}
-          <span className="font-normal text-glory">(optional, +15 GP bonus)</span>
+          <span className="font-normal text-points">(optional, +15 pts bonus)</span>
         </legend>
         <div className="flex items-end gap-3">
           <div className="flex-1 space-y-1">

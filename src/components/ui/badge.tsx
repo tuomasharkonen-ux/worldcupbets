@@ -15,7 +15,7 @@ const badge = cva(
         open: 'bg-[color-mix(in_oklab,var(--color-success)_18%,transparent)] text-success',
         locked: 'bg-[color-mix(in_oklab,var(--color-danger)_18%,transparent)] text-danger',
         finished: 'bg-surface-3 text-muted',
-        glory: 'bg-[color-mix(in_oklab,var(--color-glory)_18%,transparent)] text-glory',
+        points: 'bg-[color-mix(in_oklab,var(--color-points)_18%,transparent)] text-points',
         primary: 'bg-[color-mix(in_oklab,var(--color-primary-bright)_22%,transparent)] text-primary-bright',
         neutral: 'bg-surface-2 text-muted',
       },

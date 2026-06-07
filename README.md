@@ -1,6 +1,6 @@
 # World Cup Bets
 
-A private, five-player betting league for the 2026 World Cup. Predict match outcomes and exact scores, lock at kickoff, and watch Glory points settle automatically after full time. No real money — just bragging rights between friends.
+A private, five-player betting league for the 2026 World Cup. Predict match outcomes and exact scores, lock at kickoff, and watch Points settle automatically after full time. No real money — just bragging rights between friends.
 
 **Live:** <https://worldcupbets.vercel.app>
 
@@ -24,8 +24,8 @@ Phases 0 and 1 are **complete and deployed**. The core loop — join → bet →
 
 1. **Join** — enter the shared `LEAGUE_PASSCODE` and a display name → claim a manager slot → signed cookie keeps you logged in.
 2. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and/or an Exact Score bet. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat.
-3. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Glory movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
-4. **Leaderboard** — managers ranked by Glory.
+3. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Points movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
+4. **Leaderboard** — managers ranked by Points.
 
 ## Project layout
 
@@ -35,7 +35,7 @@ src/
     join/                 passcode join flow (page + server action)
     fixtures/             upcoming matches + recent results
     matches/[matchId]/    bet slip (page + BetSlip client component + action)
-    leaderboard/          Glory + Coins ranking
+    leaderboard/          Points + Coins ranking
     api/cron/             fixtures-sync, settle  (CRON_SECRET-guarded)
     api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
   components/

@@ -22,24 +22,24 @@ export function settle(input: SettleInput): SettleResult {
 
     if (update.status === 'void') continue;
 
-    const glory = update.gloryAwarded;
+    const points = update.pointsAwarded;
 
-    if (glory > 0) {
+    if (points > 0) {
       deltas.push({
         managerId: bet.manager_id,
         currency: 'glory',
-        amount: glory,
+        amount: points,
         reason: 'bet_win',
         refType: 'bet',
         refId: bet.id,
       });
     }
 
-    // Participation Glory — awarded per slip (one per manager per match), not per bet.
+    // Participation Points — awarded per slip (one per manager per match), not per bet.
     // Handled by the caller to avoid double-counting across bets.
   }
 
-  // Participation Glory: one entry per unique manager who had ≥1 pending bet.
+  // Participation Points: one entry per unique manager who had ≥1 pending bet.
   const participatingManagers = new Set(bets.filter(b => b.status === 'pending').map(b => b.manager_id));
   for (const managerId of participatingManagers) {
     deltas.push({
@@ -68,7 +68,7 @@ function settleBet(bet: Bet, input: SettleInput): BetUpdate {
       return settleExactScore(bet, home, away, mult, config);
     default:
       // Props are settled in later phases
-      return { betId: bet.id, status: 'void', gloryAwarded: 0 };
+      return { betId: bet.id, status: 'void', pointsAwarded: 0 };
   }
 }
 
@@ -90,7 +90,7 @@ function settleOutcome(
   return {
     betId: bet.id,
     status: won ? 'won' : 'lost',
-    gloryAwarded: won ? Math.round(config.glory.outcome_correct * mult * bet.stake_mult) : 0,
+    pointsAwarded: won ? Math.round(config.glory.outcome_correct * mult * bet.stake_mult) : 0,
   };
 }
 
@@ -104,16 +104,16 @@ function settleExactScore(
   const sel = bet.selection as ExactScoreSelection;
   const won = sel.home === home && sel.away === away;
 
-  let glory = 0;
+  let points = 0;
   if (won) {
-    const baseGlory = config.glory.outcome_correct + config.glory.exact_score_bonus;
-    glory = Math.round(baseGlory * mult * bet.stake_mult);
+    const basePoints = config.glory.outcome_correct + config.glory.exact_score_bonus;
+    points = Math.round(basePoints * mult * bet.stake_mult);
   }
 
   return {
     betId: bet.id,
     status: won ? 'won' : 'lost',
-    gloryAwarded: glory,
+    pointsAwarded: points,
   };
 }
 

@@ -19,7 +19,7 @@ shades** — retuning the whole look then means editing one file.
 | `foreground` `muted` `subtle` | text tiers | all ≥ 4.5:1 on bg/surface (AA) |
 | `primary` `primary-hover` `primary-press` `primary-bright` | actions, 3D lip, glow/focus | white-on-`primary` ≈ 5.6:1 |
 | `accent` / `accent-press` | playful pink — decorative & sabotage | use dark text on it, not white |
-| `glory` / `glory-press` | Glory points (gold) | dark text on gold fills |
+| `points` / `points-press` | Points (gold) | dark text on gold fills |
 | `success` `danger` | bet/result status | used as text on dark |
 | `radius-lg…3xl` | 1rem → 2rem | bubbly; controls use `2xl` |
 
@@ -48,13 +48,13 @@ Headless-ish primitives styled with [CVA](https://cva.style) + the `cn()` helper
 
 - **`Button`** — the chunky 3D control. Depth is a hard-edged coloured
   box-shadow "lip"; `:active` drops into it (`translate-y`). Variants:
-  `primary` · `glory` · `accent` · `glass` · `ghost`. Sizes: `sm` `md` `lg`
+  `primary` · `points` · `accent` · `glass` · `ghost`. Sizes: `sm` `md` `lg`
   `icon`. `asChild` (Radix Slot) to render as a `Link`. Auto-flattens when
   `disabled`.
 - **`Card`** — `glass` (default) · `solid` · `well`, with `padding` scale.
   `CardTitle` for headings.
 - **`Badge`** — pill, status-coloured (translucent tint + matching text):
-  `open` · `locked` · `finished` · `glory` · `primary` · `neutral`.
+  `open` · `locked` · `finished` · `points` · `primary` · `neutral`.
 - **`Input`** — inset well; lifts to a bright focus ring.
 
 Icons: **lucide-react** everywhere (no emojis). Decorative icons get
@@ -65,7 +65,7 @@ Icons: **lucide-react** everywhere (no emojis). Decorative icons get
 - Reach for a `ui/` component before hand-rolling; reach for a token before a
   raw colour.
 - Status semantics are fixed: green = open/won, red = locked/lost, gold =
-  Glory, violet = the user / primary action.
+  Points, violet = the user / primary action.
 - New phases (props, coins, shop, draft) should compose these primitives. Add a
   new `ui/` component only when a pattern repeats; add a token when a new
   semantic colour appears (e.g. a distinct "sabotage" treatment beyond `accent`).
