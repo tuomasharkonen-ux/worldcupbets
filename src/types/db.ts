@@ -33,14 +33,26 @@ export interface LeagueConfig {
     carded?: number;
     stat_leader?: number;
   };
-  // Per-bet Coin income (GAME_DESIGN §4). Slate-scoped rewards (participation,
-  // clean_slate, streak, interest) join this object in a later Phase 3 slice.
+  // Coin income (GAME_DESIGN §4): per-bet keys (migration 003) + slate-scoped
+  // day-close keys (migration 005).
   coins: {
     starting_balance: number;
+    // per bet
     outcome: number;
     goal_difference: number;
     exact: number;
     prop: number;
+    // per slate, granted at day-close (slice 3)
+    participation?: number;
+    clean_slate?: number;
+    // streak / interest payouts read by the slice-4 upgrades (Hot Hand / Vault)
+    streak_bonus?: Record<string, number>;
+    interest_rate?: number;
+  };
+  // Daily-loop config (migration 005). Optional so pre-005 configs still type-check;
+  // callers fall back to the 09:00 default.
+  daily?: {
+    rollover_hour_local: number;
   };
   stake: {
     // Coin cost → Glory multiplier per stake tier (GAME_DESIGN §5). Tier 0 is the
@@ -61,6 +73,17 @@ export interface Manager {
   glory: number;
   coins: number;
   joined_at: string;
+  state: ManagerState;
+}
+
+// Per-manager scratch state (migration 005), updated at day-close. All fields
+// optional: a fresh manager has `{}`. See DATA_MODEL.md.
+export interface ManagerState {
+  // Consecutive slates with every outcome correct (drives the Hot Hand payout).
+  outcome_streak?: number;
+  // Slate key (YYYY-MM-DD) of the last day-close processed — guards the streak
+  // counter against re-running settlement.
+  last_closed_slate?: string;
 }
 
 export interface Team {

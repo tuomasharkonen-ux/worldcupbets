@@ -3,7 +3,9 @@ import { verifyCronSecret } from '@/lib/cron';
 import { db } from '@/lib/supabase';
 import { getMatchDetail } from '@/lib/football-data';
 import { settle } from '@/settlement/engine';
-import type { Bet, EventType, League, Match, MatchEvent } from '@/types/db';
+import { closeSlate } from '@/settlement/dayclose';
+import { slateKeyOf } from '@/lib/slate';
+import type { Bet, EventType, League, ManagerState, Match, MatchEvent } from '@/types/db';
 
 // bet_types that need match_events / lineups to settle
 const PROP_BET_TYPES = ['first_scorer', 'anytime_scorer', 'carded'];
@@ -15,15 +17,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const settled = await settleFinishedMatches();
-    return NextResponse.json({ ok: true, settled });
+    const { settled, slatesClosed } = await settleFinishedMatches();
+    return NextResponse.json({ ok: true, settled, slatesClosed });
   } catch (err) {
     console.error('[settle] error:', err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
 
-async function settleFinishedMatches(): Promise<number> {
+async function settleFinishedMatches(): Promise<{ settled: number; slatesClosed: number }> {
   // Load config once
   const { data: league, error: leagueErr } = await db
     .from('league')
@@ -39,19 +41,122 @@ async function settleFinishedMatches(): Promise<number> {
     .eq('status', 'finished')
     .is('settled_at', null);
   if (matchErr) throw matchErr;
-  if (!matches || matches.length === 0) return 0;
+  if (!matches || matches.length === 0) return { settled: 0, slatesClosed: 0 };
 
-  let count = 0;
+  const justSettled: Match[] = [];
   for (const match of matches as Match[]) {
     try {
       await settleMatch(match, league);
-      count++;
+      justSettled.push(match);
     } catch (err) {
       console.error(`[settle] match ${match.id} failed:`, err);
       // Continue to next match — one failure doesn't block others
     }
   }
-  return count;
+
+  // Day-close: any slate whose matches we just finished may now be fully settled.
+  // Grant slate-scoped bonuses (participation, clean-slate) + advance streak state.
+  const rollover = league.config.daily?.rollover_hour_local ?? 9;
+  const touchedSlates = [...new Set(justSettled.map(m => slateKeyOf(m.kickoff_at, rollover)))].sort();
+  let slatesClosed = 0;
+  for (const slateKey of touchedSlates) {
+    try {
+      if (await closeCompletedSlate(slateKey, league, rollover)) slatesClosed++;
+    } catch (err) {
+      console.error(`[settle] day-close for slate ${slateKey} failed:`, err);
+    }
+  }
+
+  return { settled: justSettled.length, slatesClosed };
+}
+
+// Recompute the cached managers.glory / managers.coins from the append-only ledger
+// (the source of truth) for the given managers.
+async function recomputeBalances(managerIds: string[]): Promise<void> {
+  for (const managerId of managerIds) {
+    const { data: rows } = await db
+      .from('ledger')
+      .select('currency, amount')
+      .eq('manager_id', managerId);
+
+    const points = (rows ?? []).filter(r => r.currency === 'glory').reduce((s, r) => s + r.amount, 0);
+    const coins = (rows ?? []).filter(r => r.currency === 'coins').reduce((s, r) => s + r.amount, 0);
+    await db.from('managers').update({ glory: points, coins }).eq('id', managerId);
+  }
+}
+
+// Run day-close for a slate, but only once every non-void match on it is settled.
+// Returns true when the slate was complete (and processed), false when it's not
+// ready yet. Idempotent: the ledger unique index dedupes coin grants and
+// manager_state.last_closed_slate guards the streak counter.
+async function closeCompletedSlate(slateKey: string, league: League, rollover: number): Promise<boolean> {
+  // Slate membership is computed, not stored — derive it from every match's kickoff.
+  const { data: allMatches, error } = await db
+    .from('matches')
+    .select('id, kickoff_at, status, settled_at');
+  if (error) throw error;
+
+  const members = (allMatches ?? []).filter(
+    m => m.status !== 'void' && slateKeyOf(m.kickoff_at as string, rollover) === slateKey,
+  );
+  if (members.length === 0) return false;
+  if (members.some(m => !m.settled_at)) return false; // not fully settled yet
+
+  const memberIds = members.map(m => m.id as string);
+
+  // All bets on the slate, grouped by manager.
+  const { data: betRows, error: betsErr } = await db.from('bets').select('*').in('match_id', memberIds);
+  if (betsErr) throw betsErr;
+  const byManager = new Map<string, Bet[]>();
+  for (const b of (betRows ?? []) as Bet[]) {
+    const list = byManager.get(b.manager_id);
+    if (list) list.push(b);
+    else byManager.set(b.manager_id, [b]);
+  }
+
+  const managerIds = [...byManager.keys()];
+  if (managerIds.length === 0) return true; // complete slate, but nobody bet
+
+  // Prior per-manager state.
+  const { data: mgrRows } = await db.from('managers').select('id, state').in('id', managerIds);
+  const stateById = new Map<string, ManagerState>(
+    (mgrRows ?? []).map(m => [m.id as string, (m.state ?? {}) as ManagerState]),
+  );
+
+  const affected = new Set<string>();
+  for (const managerId of managerIds) {
+    const result = closeSlate({
+      managerId,
+      slateKey,
+      slateMatchIds: memberIds,
+      bets: byManager.get(managerId)!,
+      config: league.config,
+      priorState: stateById.get(managerId) ?? {},
+    });
+
+    if (result.deltas.length > 0) {
+      const rows = result.deltas.map(d => ({
+        manager_id: d.managerId,
+        currency: d.currency,
+        amount: d.amount,
+        reason: d.reason,
+        ref_type: d.refType,
+        ref_id: d.refId,
+      }));
+      const { error: ledgerErr } = await db
+        .from('ledger')
+        .upsert(rows, { onConflict: 'reason,ref_type,ref_id,manager_id', ignoreDuplicates: true });
+      if (ledgerErr) throw ledgerErr;
+      affected.add(managerId);
+    }
+
+    if (!result.alreadyClosed) {
+      await db.from('managers').update({ state: result.newState }).eq('id', managerId);
+    }
+  }
+
+  await recomputeBalances([...affected]);
+  return true;
 }
 
 async function settleMatch(match: Match, league: League): Promise<void> {
@@ -134,22 +239,7 @@ async function settleMatch(match: Match, league: League): Promise<void> {
   }
 
   // 3. Recompute cached balances from ledger
-  const managerIds = [...new Set(result.deltas.map(d => d.managerId))];
-  for (const managerId of managerIds) {
-    const { data: rows } = await db
-      .from('ledger')
-      .select('currency, amount')
-      .eq('manager_id', managerId);
-
-    const points = (rows ?? [])
-      .filter(r => r.currency === 'glory')
-      .reduce((s, r) => s + r.amount, 0);
-    const coins = (rows ?? [])
-      .filter(r => r.currency === 'coins')
-      .reduce((s, r) => s + r.amount, 0);
-
-    await db.from('managers').update({ glory: points, coins }).eq('id', managerId);
-  }
+  await recomputeBalances([...new Set(result.deltas.map(d => d.managerId))]);
 
   // 4. Mark match as settled
   await db

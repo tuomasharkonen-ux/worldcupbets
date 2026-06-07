@@ -6,16 +6,16 @@ Build order is deliberately **vertical then horizontal**: get one thin slice wor
 
 ---
 
-## 📍 Current status (as of 2026-06-07)
+## 📍 Current status (as of 2026-06-08)
 
-**Phases 0, 1, and 2 are complete.** The core loop (join → bet → lock → settle → leaderboard) is deployed at <https://worldcupbets.vercel.app> and verified end-to-end. Phase 2 (player props) is built and unit-tested (21 settlement tests green); it goes live once squads are synced via the `squads-sync` endpoint.
+**Phases 0, 1, and 2 are complete.** The core loop (join → bet → lock → settle → leaderboard) is deployed at <https://worldcupbets.vercel.app> and verified end-to-end. Phase 2 (player props) is built and unit-tested; it goes live once squads are synced via the `squads-sync` endpoint. **Phase 3 slices 1–3 are built** (coins, staking, and the daily slate + animated recap — 48 unit tests green); migrations `003`/`004` are applied, `005` is **pending apply**.
 
 | Phase | Status |
 | --- | --- |
 | 0 — Foundations | ✅ Done |
 | 1 — Core betting loop (MVP) | ✅ Done |
 | 2 — Player props | ✅ Done |
-| 3 — The Daily Game: coins, staking, shop & daily loop | 🟡 In progress (slices 1–2 built: coin income + goal-difference bonus + staking with ×3 cap, forfeit-on-miss, and the bet-slip stake widget; daily slate, shop, and recap not built) |
+| 3 — The Daily Game: coins, staking, shop & daily loop | 🟡 In progress (slices 1–3 built: coins, staking, daily slate `/today` with four states + animated morning recap + day-close grants; shop slices 4–5 not built) |
 | 4 — Stat Leader prop | ⬜ Not started |
 | 5 — Shop | ⬜ Not started |
 | 6 — Draft / auction | ⬜ Not started |
@@ -110,23 +110,39 @@ post-kickoff without blocking launch — upgrades are the spine.
    and the goal-difference consolation is an independent rubric bonus the stake never
    amplifies. Submission validates each stake against the tiers + cap and the slip
    total against the manager's balance. Migration `004_phase3_staking.sql`; 5 new unit
-   tests (31 total green). *Pending: apply `003` + `004` to Supabase.*
-3. **Daily slate view** — compute slates from `kickoff_at` + `rollover_hour_local`;
-   `/today` becomes home (a single screen with **four states**: betting → you're-all-set
-   → settling/waiting → recap-ready — see `DESIGN_SYSTEM.md`), `/fixtures` demoted to a
-   "Full schedule" view; day-close step grants participation + clean-slate + streak +
-   interest. The **"you're all set"** state shows your submitted slip (still editable
-   until each match's kickoff).
+   tests (31 total green). Applied to Supabase.
+3. ✅ **Daily slate view (+ recap, pulled forward from slice 6)** — slates computed
+   from `kickoff_at` + `rollover_hour_local` (pure `lib/slate.ts`, DST-safe via
+   Helsinki wall-clock parts; the 04:00→previous-slate boundary is tested). `/today` is
+   now home: a single screen with **four data-driven states** — betting → you're-all-set
+   → settling/waiting (N-of-M settled, results hidden) → recap-ready — plus a rest-day
+   fallback. The active slate is `slateKey(now)`, so the morning rollover naturally
+   flips the screen from last night's recap to tonight's betting. `/fixtures` demoted to
+   "Full schedule"; Nav + root redirect updated. **Day-close** runs in the settle route
+   once every non-void slate match is settled: grants participation (+10¢ full slip) +
+   clean-slate (+15¢ all outcomes correct) as `slate`-scoped ledger entries, and
+   advances the outcome-**streak** counter in `managers.state` (streak/interest
+   *payouts* wait for the slice-4 upgrades). The **morning recap** is the fully animated
+   sequenced reveal (title → match HIT/MISS → points odometer → coins cascade →
+   leaderboard with rank deltas → shop CTA), tap-to-advance + auto + Skip, with a
+   reduced-motion static fallback. Migration `005_phase3_daily.sql` (config.daily,
+   slate coin rubric, `managers.state`, `ledger.ref_id`→text); slate + day-close pure
+   and covered by 17 new unit tests (48 total green). *Pending: apply `005` to Supabase.*
+   The **"you're all set"** state shows your submitted slip (still editable until each
+   match's kickoff). *(The full reveal choreography was built here rather than waiting
+   for slice 6 — see below.)*
 4. **Shop — upgrades** — seed `shop_items`; purchase flow → `manager_items` +
    `purchase` ledger entry; settlement/submission read active upgrades (Coin Magnet
    income mult, Bigger Wallet stake cap, Extra Prop Slot count, Vault/Hot Hand/
    Accumulator).
 5. **Shop — self-buff power-ups** — Double Down, Insurance, Hedge, Banker as pure
    settlement modifiers applied before the ×3 cap; consume idempotently.
-6. **Morning recap + polish** — the sequenced reveal (`DESIGN_SYSTEM.md`), including the
-   **settling/waiting** state ("results still coming in — check back soon", with N-of-M
-   settled) that holds until every slate match has `settled_at`; `<GlassFlare>` ambient
-   flare. **Settle scheduling is done** — external cron-job.org sweep, hourly 06:00–10:00
+6. **Morning recap + polish** — ✅ *largely built in slice 3*: the sequenced reveal
+   (`DESIGN_SYSTEM.md`) and the **settling/waiting** state (N-of-M settled, results
+   hidden until every slate match has `settled_at`) both ship. **Remaining polish:**
+   `<GlassFlare>` ambient flare, true FLIP leaderboard geometry (slice 3 uses rank-delta
+   arrows), itemised streak/interest lines (once slice-4 upgrades pay out), and SFX.
+   **Settle scheduling is done** — external cron-job.org sweep, hourly 06:00–10:00
    Helsinki (idempotent), not Vercel cron; see the cron-settle-schedule memory.
 
 **Done when:** you bet on tonight's slate, wake to a recap that pays amplified Glory on

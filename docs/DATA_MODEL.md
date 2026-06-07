@@ -35,10 +35,14 @@ Single-row global config. Keeps tunable values out of the code.
 
 `config.glory` holds the Glory payouts: `outcome_correct` (10), `exact_score_bonus` (15), and the player props `first_goalscorer` (20), `anytime_scorer` (8), `carded` (6), `stat_leader` (15). Prop values were added in migration `002`. (A `glory.participation` placeholder existed in `001`; Phase 3 retires it — participation is a **Coin** reward, never Glory.)
 
-> **Phase 3 config (migration `003`)** expands `config.coins.*` to the daily rubric
-> (`participation`, `outcome`, `goal_difference`, `exact`, `prop`, `clean_slate`,
-> Coin Magnet/Vault/Hot Hand params) and adds `config.daily.rollover_hour_local`. See
-> `GAME_DESIGN.md` §4–§6.
+> **Per-bet Coin rubric (migration `003`)** sets `config.coins.*` per-bet keys —
+> `outcome` (5), `goal_difference` (3), `exact` (10), `prop` (4) — and adds the
+> `glory.goal_difference` bonus (5), retiring the `participation` placeholders.
+>
+> **Daily-loop config (migration `005`)** adds `config.daily.rollover_hour_local` (9)
+> and the slate-scoped Coin rewards `coins.participation` (10) + `coins.clean_slate`
+> (15), plus the `coins.streak_bonus` / `coins.interest_rate` params the slice-4 Hot
+> Hand / Vault upgrades will read. See `GAME_DESIGN.md` §2 / §4.
 >
 > **Staking config (migration `004`)** restructures `config.stake` from the bare
 > `multipliers` array into `tiers` — `{ coins, mult }` pairs that carry each stake's
@@ -185,9 +189,9 @@ Append-only. Source of truth for every Glory and Coin movement.
 | `manager_id` | uuid FK → managers | |
 | `currency` | text | `glory` \| `coins` |
 | `amount` | int | signed (negative for spends/losses) |
-| `reason` | text | `bet_win` \| `participation` \| `stake_loss` \| `purchase` \| `sabotage_in` \| `sabotage_out` \| `jinx` … |
-| `ref_type` | text | `bet` \| `match` \| `item` … |
-| `ref_id` | uuid | the thing that caused it |
+| `reason` | text | `bet_win` \| `bet_coin` \| `stake_loss` \| `participation` \| `clean_slate` \| `purchase` \| `sabotage_in` \| `sabotage_out` \| `jinx` … |
+| `ref_type` | text | `bet` \| `match` \| `slate` \| `item` … |
+| `ref_id` | text | the thing that caused it — a uuid for `bet`/`match`/`item`, or a slate date key (`YYYY-MM-DD`) for `slate`-scoped grants. Widened from uuid to text in migration `005`. |
 | `created_at` | timestamptz | |
 
 > Idempotency: a `(reason, ref_type, ref_id, manager_id)` unique index prevents double-crediting if settlement re-runs.
@@ -221,13 +225,19 @@ Owned and/or active instances — purchases, active sabotages, consumed power-up
 
 Permanent upgrades (`kind = upgrade`) stay `active` forever and are read when computing a manager's stake cap, prop-slot count, and coin multiplier.
 
-### `manager_state` (Phase 3, planned)
+### `managers.state` (Phase 3 — built, migration `005`)
 
-Per-manager scratch state the ledger isn't the right home for: the correct-outcome
-**streak** counter (Hot Hand), the **Accumulator** "declared/used this slate" flag,
-and **Vault** interest bookkeeping. A single `jsonb` column on `managers` (or a thin
-1:1 table) updated at day-close. Chosen over recomputing from settled bets each
-morning for simpler reads. Not yet built.
+Per-manager scratch state the ledger isn't the right home for, as a `jsonb` column on
+`managers` (default `{}`), updated at day-close:
+
+- `outcome_streak` — consecutive slates with every outcome correct (drives the Hot
+  Hand payout in slice 4). Incremented on an all-correct slate, reset to 0 otherwise.
+- `last_closed_slate` — slate key (`YYYY-MM-DD`) of the last day-close processed.
+  Guards the streak counter against a settlement re-run double-counting.
+
+The Accumulator "declared/used this slate" flag and Vault bookkeeping join this object
+in later slices. Chosen over recomputing from settled bets each morning for simpler
+reads. See `src/settlement/dayclose.ts` (pure) + the `settle` route's slate-close step.
 
 ---
 

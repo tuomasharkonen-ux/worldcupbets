@@ -132,9 +132,12 @@ export default async function FixturesPage() {
         <section className="space-y-3">
           <div className="flex items-center gap-2.5">
             <CalendarDays className="size-6 text-primary-bright" aria-hidden />
-            <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-              Upcoming fixtures
-            </h1>
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+                Full schedule
+              </h1>
+              <p className="text-xs text-subtle">Every fixture — your daily slate lives on Today.</p>
+            </div>
           </div>
           {upcoming.length === 0 ? (
             <Card className="text-center text-sm text-muted">

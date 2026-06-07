@@ -25,8 +25,13 @@
       "outcome": 5,
       "goal_difference": 3,
       "exact": 10,
-      "prop": 4
+      "prop": 4,
+      "participation": 10,
+      "clean_slate": 15,
+      "streak_bonus": { "2": 2, "3": 4, "4": 6 },
+      "interest_rate": 0.05
     },
+    "daily": { "rollover_hour_local": 9 },
     "stake": {
       "tiers": [
         { "coins": 0, "mult": 1.0 },
