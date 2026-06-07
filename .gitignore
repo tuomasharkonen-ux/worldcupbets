@@ -43,3 +43,6 @@ next-env.d.ts
 
 # claude code local settings (machine-specific)
 .claude/settings.local.json
+
+# Local Claude Code config (launch configs, local settings)
+.claude/
