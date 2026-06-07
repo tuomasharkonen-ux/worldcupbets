@@ -58,15 +58,21 @@ Goal: the whole game in its simplest form, on bulletproof data only.
 
 Goal: the prop layer, still on football-data.org only (no Sofascore yet).
 
-- [x] Squad/roster sync into `footballers` — `GET /api/cron/squads-sync` (manual-trigger, `CRON_SECRET`-guarded). Upserts on `fd_player_id` so footballer UUIDs stay stable (bet selections reference them). **Run once after final squads confirm.**
+- [x] Squad/roster sync into `footballers` — `GET /api/cron/squads-sync` (manual-trigger, `CRON_SECRET`-guarded). Upserts on `fd_player_id` so footballer UUIDs stay stable (bet selections reference them). **Done:** synced 48 teams / 1,244 players.
 - [x] `match_events` ingestion (goals, cards, own goals) in `settle` — fetches match detail from football-data only when the match has prop bets; maps `fd_player_id → footballer_id`; idempotent delete-then-insert. Fetch failure leaves the match unsettled to retry next run rather than mis-settling props.
-- [x] Prop bets: First Goalscorer, Anytime Goalscorer, Carded. Pick up to 2 (enforced client + server). UI: per-team player `<select>`s in the bet slip; props open once squads exist.
+- [x] Prop bets: First Goalscorer, Anytime Goalscorer, Carded. UI: a single **prop slot** (`+ Add a player prop`) opens a modal — choose prop type → pick player from a searchable, position-aware list (slot count is one constant, easy to raise). Enforced client + server; props open once squads exist.
 - [x] Void logic for players who didn't appear — `match_appearances` table + `appearances` in the pure engine. Voids only when lineup data proves non-appearance; falls back to `lost` when lineups are absent (documented in `DATA_MODEL.md`).
 - [x] Settlement extended for props — `settleScorerProp` (first/anytime, own-goal-excluded, penalty counts) + `settleCarded`, all pure and covered by 11 new unit tests. Props award Glory only; prop Coins are Phase 3.
 
 **Done when:** "who scores first" bets settle correctly off real events, including the own-goal exclusion. ✅ Verified by unit tests against synthetic events; live verification awaits real fixtures + a squad sync.
 
-> Schema: migration `002_phase2_props.sql` adds prop Glory values to `league.config`, the `match_appearances` table, and a unique index on `footballers.fd_player_id`. Apply it to production before settling any prop bets.
+> Schema: migration `002_phase2_props.sql` adds prop Glory values to `league.config`, the `match_appearances` table, and a unique index on `footballers.fd_player_id`. **Applied to production.**
+
+### Bet slip UX (shipped alongside Phase 2)
+
+- **Core bets are mandatory:** outcome + exact score must both be set; Save is gated client- and server-side. Player props remain optional.
+- **Prop slot + modal:** one slot today, on a new Radix-based `ui/dialog` primitive. Player picker is searchable and scrollable, grouped by team, with **position badges** (GK/DEF/MID/FWD, normalised from football-data labels), **relevance ordering** (forwards-first for goals, defenders/mids-first for cards), and **quick-filter chips**. Degrades to a plain list when positions are absent.
+- **Country flags** at every team mention (fixtures, scoreboard, outcome buttons, score labels, picker headers): `flag-icons` (SVG) + `i18n-iso-countries` for name→ISO mapping, behind a `ui/flag` component (`lib/country-flags.ts`) with an override table for football-data naming quirks; renders nothing when unresolved.
 
 ---
 
