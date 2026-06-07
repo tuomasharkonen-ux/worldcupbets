@@ -29,6 +29,10 @@ export interface BetUpdate {
   betId: string;
   status: 'won' | 'lost' | 'void';
   pointsAwarded: number;
+  // Flat Coin income for this bet (GAME_DESIGN §4) — not multiplied by stage/stake.
+  // A correct-margin exact bet earns coins while status stays 'lost' (it's not an
+  // exact win), so coins are tracked separately from pointsAwarded/status.
+  coinsAwarded: number;
 }
 
 export interface SettleResult {

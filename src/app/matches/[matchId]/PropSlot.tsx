@@ -10,6 +10,7 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { StakeSelector, type StakeTier } from './StakeSelector';
 
 export type PropType = 'first_scorer' | 'anytime_scorer' | 'carded';
 
@@ -78,9 +79,12 @@ interface Props {
   squads: SlipSquads;
   defaultValue: SlotValue | null;
   locked: boolean;
+  // Staking config for the prop bet (GAME_DESIGN §5). The stake selector only
+  // appears once a prop is chosen — an unstaked empty slot has nothing to stake.
+  stake: { tiers: StakeTier[]; capCoins: number; balance: number; defaultCoins?: number };
 }
 
-export function PropSlot({ squads, defaultValue, locked }: Props) {
+export function PropSlot({ squads, defaultValue, locked, stake }: Props) {
   const [value, setValue] = useState<SlotValue | null>(defaultValue);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'type' | 'player'>('type');
@@ -161,33 +165,43 @@ export function PropSlot({ squads, defaultValue, locked }: Props) {
       {value && <input type="hidden" name={value.type} value={value.playerId} />}
 
       {value ? (
-        <div className="flex items-center justify-between gap-3 rounded-2xl border border-border-strong bg-surface-2 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-xs text-points">{PROP_META[value.type].label}</p>
-            <p className="truncate font-display text-sm font-semibold text-foreground">
-              {chosenPlayer ? fmtPlayer(chosenPlayer) : 'Unknown player'}
-            </p>
-          </div>
-          {!locked && (
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                onClick={openModal}
-                aria-label="Change prop"
-                className="grid size-9 place-items-center rounded-xl text-subtle transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
-              >
-                <Pencil className="size-4" aria-hidden />
-              </button>
-              <button
-                type="button"
-                onClick={() => setValue(null)}
-                aria-label="Remove prop"
-                className="grid size-9 place-items-center rounded-xl text-subtle transition-colors hover:bg-[color-mix(in_oklab,var(--color-danger)_16%,transparent)] hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
-              >
-                <X className="size-4" aria-hidden />
-              </button>
+        <div className="space-y-2.5 rounded-2xl border border-border-strong bg-surface-2 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-xs text-points">{PROP_META[value.type].label}</p>
+              <p className="truncate font-display text-sm font-semibold text-foreground">
+                {chosenPlayer ? fmtPlayer(chosenPlayer) : 'Unknown player'}
+              </p>
             </div>
-          )}
+            {!locked && (
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  onClick={openModal}
+                  aria-label="Change prop"
+                  className="grid size-9 place-items-center rounded-xl text-subtle transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
+                >
+                  <Pencil className="size-4" aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setValue(null)}
+                  aria-label="Remove prop"
+                  className="grid size-9 place-items-center rounded-xl text-subtle transition-colors hover:bg-[color-mix(in_oklab,var(--color-danger)_16%,transparent)] hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
+                >
+                  <X className="size-4" aria-hidden />
+                </button>
+              </div>
+            )}
+          </div>
+          <StakeSelector
+            name="stake_prop"
+            tiers={stake.tiers}
+            capCoins={stake.capCoins}
+            balance={stake.balance}
+            defaultCoins={stake.defaultCoins}
+            disabled={locked}
+          />
         </div>
       ) : locked ? (
         <p className="rounded-2xl border border-border bg-surface-2 px-4 py-3 text-sm text-subtle">

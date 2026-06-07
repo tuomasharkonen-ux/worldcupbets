@@ -3,7 +3,7 @@
 import { db } from '@/lib/supabase';
 import { requireManager } from '@/lib/session';
 import { redirect } from 'next/navigation';
-import type { BetType } from '@/types/db';
+import type { BetType, League } from '@/types/db';
 
 export type BetSlipState = {
   error?: string;
@@ -94,6 +94,63 @@ export async function submitBet(
     return { error: 'Invalid outcome selection.' };
   }
 
+  // ─── Staking (GAME_DESIGN §5) ─────────────────────────────────────────────
+  // Each bet may carry a Coin stake that amplifies its Glory on a hit and is
+  // forfeited on a miss. Tiers (cost → multiplier) and the per-bet cap live in
+  // league.config. We validate every stake against the config and the manager's
+  // current balance before writing — settlement trusts stake_coins/stake_mult.
+  const { data: league } = await db
+    .from('league')
+    .select('config')
+    .eq('id', 1)
+    .single<Pick<League, 'config'>>();
+  const tiers = league?.config.stake.tiers ?? [{ coins: 0, mult: 1.0 }];
+  const capCoins = league?.config.stake.cap_coins ?? 0;
+
+  // Map a submitted Coin amount to a valid tier; returns null for anything that
+  // isn't an exact tier value or exceeds the cap.
+  const resolveStake = (raw: string | null): { coins: number; mult: number } | null => {
+    const coins = parseInt((raw ?? '0').trim() || '0', 10);
+    if (isNaN(coins) || coins < 0 || coins > capCoins) return null;
+    return tiers.find(t => t.coins === coins) ?? null;
+  };
+
+  // Read a stake per bet. Props only carry a stake when the prop is actually set.
+  const stakeInputs: { betType: BetType; raw: string | null }[] = [
+    { betType: 'outcome', raw: formData.get('stake_outcome') as string | null },
+    { betType: 'exact_score', raw: formData.get('stake_exact') as string | null },
+  ];
+  if (chosenProps.length > 0) {
+    stakeInputs.push({ betType: chosenProps[0].betType, raw: formData.get('stake_prop') as string | null });
+  }
+
+  const stakeByType = new Map<BetType, { coins: number; mult: number }>();
+  let totalStaked = 0;
+  for (const { betType, raw } of stakeInputs) {
+    const tier = resolveStake(raw);
+    if (!tier) return { error: 'Invalid stake amount.' };
+    stakeByType.set(betType, tier);
+    totalStaked += tier.coins;
+  }
+
+  // Total committed stake must fit the manager's current Coin balance.
+  if (totalStaked > 0) {
+    const { data: me } = await db
+      .from('managers')
+      .select('coins')
+      .eq('id', managerId)
+      .single<{ coins: number }>();
+    const balance = me?.coins ?? 0;
+    if (totalStaked > balance) {
+      return { error: `Not enough Coins to stake ${totalStaked}¢ (you have ${balance}¢).` };
+    }
+  }
+
+  const stakeFor = (betType: BetType) => {
+    const tier = stakeByType.get(betType) ?? { coins: 0, mult: 1.0 };
+    return { stake_coins: tier.coins, stake_mult: tier.mult };
+  };
+
   // Replace any existing pending bets for this manager + match
   await db
     .from('bets')
@@ -102,14 +159,14 @@ export async function submitBet(
     .eq('match_id', matchId)
     .eq('status', 'pending');
 
-  const base = { manager_id: managerId, match_id: matchId, stake_coins: 0, stake_mult: 1.0, locked_at: match.kickoff_at };
+  const base = { manager_id: managerId, match_id: matchId, locked_at: match.kickoff_at };
   const newBets: Array<Record<string, unknown>> = [
-    { ...base, bet_type: 'outcome', selection: { result: outcomeResult } },
-    { ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore } },
+    { ...base, bet_type: 'outcome', selection: { result: outcomeResult }, ...stakeFor('outcome') },
+    { ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore }, ...stakeFor('exact_score') },
   ];
 
   for (const p of chosenProps) {
-    newBets.push({ ...base, bet_type: p.betType, selection: { footballer_id: p.footballerId } });
+    newBets.push({ ...base, bet_type: p.betType, selection: { footballer_id: p.footballerId }, ...stakeFor(p.betType) });
   }
 
   const { error } = await db.from('bets').insert(newBets);

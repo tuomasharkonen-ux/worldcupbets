@@ -23,7 +23,9 @@ export interface LeagueConfig {
   glory: {
     outcome_correct: number;
     exact_score_bonus: number;
-    participation: number;
+    // Goal-difference bonus (right outcome + right margin, not exact). Added in
+    // migration 003; optional so older configs still type-check (engine falls back to 0).
+    goal_difference?: number;
     // Player props (Phase 2). Optional so v1 configs still type-check; the
     // settlement engine falls back to 0 when a value is absent.
     first_goalscorer?: number;
@@ -31,13 +33,22 @@ export interface LeagueConfig {
     carded?: number;
     stat_leader?: number;
   };
+  // Per-bet Coin income (GAME_DESIGN §4). Slate-scoped rewards (participation,
+  // clean_slate, streak, interest) join this object in a later Phase 3 slice.
   coins: {
     starting_balance: number;
-    participation: number;
-    correct_bet: number;
+    outcome: number;
+    goal_difference: number;
+    exact: number;
+    prop: number;
   };
   stake: {
-    multipliers: number[];
+    // Coin cost → Glory multiplier per stake tier (GAME_DESIGN §5). Tier 0 is the
+    // "no stake" option ({ coins: 0, mult: 1.0 }).
+    tiers: { coins: number; mult: number }[];
+    // Per-bet stake ceiling in Coins (raisable via the Bigger Wallet upgrade).
+    cap_coins: number;
+    // Hard cap on the combined stage × stake multiplier the engine applies (×3.0).
     max_total_multiplier: number;
   };
   glory_multipliers: Record<MatchStage, number>;

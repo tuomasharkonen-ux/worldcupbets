@@ -69,3 +69,94 @@ Icons: **lucide-react** everywhere (no emojis). Decorative icons get
 - New phases (props, coins, shop, draft) should compose these primitives. Add a
   new `ui/` component only when a pattern repeats; add a token when a new
   semantic colour appears (e.g. a distinct "sabotage" treatment beyond `accent`).
+
+## Motion & flare (Phase 3)
+
+Phase 3 (the daily-game overhaul) adds **ambient interactive flare** and **reactive
+reveal motion**. Both decorate the existing primitives — no new colour unless a new
+semantic appears.
+
+### Rules (non-negotiable)
+
+- **`prefers-reduced-motion` is sacred** (already global). Every effect has a static
+  or near-static fallback; ambient/cursor effects simply don't mount.
+- **60fps or it doesn't ship** — animate only `transform` / `opacity` / CSS custom
+  properties; never layout properties.
+- **Budget**: cursor/scroll listeners are RAF-throttled and *delegated* (one listener,
+  not one per card); ambient effects disable on coarse pointers (touch).
+- Tokens-first: reflections/glows read from `border-strong` / `primary-bright`.
+
+### Ambient glass flare — the cards that "live"
+
+A reusable `<GlassFlare>` wrapper / `useGlassFlare` hook (lives alongside the `glass`
+utility), opt-in per card, trivially disabled:
+
+- **Cursor edge reflection** — track pointer position relative to the card
+  (`--mx`/`--my`, 0–1), render a soft radial highlight + a brighter border segment
+  following the cursor, like light glancing off real glass. `::before`/`::after`
+  gradient masked to the border, opacity driven by proximity.
+- **Scroll-reactive sheen** — a faint sheen sweeps across glass as cards move through
+  the viewport (`IntersectionObserver` + scroll progress). Subtle: "the light
+  shifted," not a disco.
+- **Tilt (optional, small)** — a few degrees of parallax tilt toward the cursor on
+  hero cards; capped to avoid nausea; off on touch.
+
+> Doable in vanilla CSS vars + a tiny hook — likely no new dependency. If the recap
+> wants spring physics, `motion` (Framer Motion) is the natural add — decide at
+> implementation time.
+
+### The morning recap — the showcase choreography
+
+The signature moment (see `GAME_DESIGN.md` §2 / the daily loop). A **sequenced,
+tap-to-advance reveal** (auto-advances ~1.5s, always skippable):
+
+1. **"Last night"** title card — slate date, held breath; blobs pulse.
+2. **Match-by-match** — each match reveals in turn: score counts up, pick stamps
+   **HIT** (green pop + confetti) / **MISS** (muted red shake); staked chips ignite or
+   burn.
+3. **Points odometer** — running total rolls up with `+10` / `×1.5 stake` / `×2.0 stage`
+   chips flying in; overshoot-and-settle; `text-glow` flares.
+4. **Coins cascade** — coins rain into balance, itemised (participation, correct,
+   clean-slate, streak, interest); streak flame grows.
+5. **Leaderboard FLIP** — rows animate to new positions; your row highlighted, ▲/▼
+   deltas slide in; overtaking a rival celebrates (gently honest on being overtaken).
+6. **Shop CTA** — "You have **140¢** to spend." Balance pulses; chunky `Button`
+   bounces in.
+
+Principles: **earned not instant** (numbers *travel*, so a good night feels bigger),
+**skippable** (persistent *Skip →*; re-viewing shows the static end-state), **honest
+but kind** (dopamine loaded on wins, never humiliating). Reduced-motion path renders
+the same beats as an instant static summary. Data is cheap — a read over the slate's
+`ledger` + bet statuses + a yesterday-vs-today leaderboard snapshot; all the cost is
+front-end choreography.
+
+### The Today screen — one screen, four states
+
+`/today` is a single screen that progresses through the daily loop. The recap is the
+final state of the *same* surface, not a separate page.
+
+1. **Betting** (default, before you've saved a full slip) — the slate's matches as
+   bettable cards; build your slip + stakes; shop entry point.
+2. **You're all set** (slip submitted) — a confirmation variant showing your submitted
+   bets per match, a countdown to first kickoff, and your coins/shop access. Bets stay
+   editable until each match's own kickoff lock (power-ups + Accumulator lock at the
+   slate's first kickoff). This is the "come back tonight" resting state.
+3. **Settling / waiting for results** — from the first morning cron (~06:00 Helsinki)
+   until the whole slate is settled. The screen flips to recap mode but shows a clear
+   **"Results are still coming in — check back soon"** state instead of the celebration.
+   Settlement is a multi-run sweep (06:00–10:00), so this state can persist for a while;
+   it must read as *expected*, not broken. Show **progress only** (e.g. "3 of 5 settled")
+   — the actual results, points, and coins stay **hidden** so the full reveal lands all
+   at once. No peeking at individual outcomes during the wait.
+4. **Recap ready** — once **every** match on the slate has `settled_at`, the full
+   sequenced reveal (below) unlocks.
+
+"Ready" is a data condition (all slate matches settled), not just a clock time — a match
+still in play or awaiting data keeps the screen in state 3 rather than revealing a
+half-finished recap.
+
+### Reveal/feedback motion toolkit
+
+Count-up odometers · scaled confetti/particle bursts (sized to the win) · FLIP list
+reorders · chunky-button bounce · stake-chip "ka-ching" micro-bounce · power-up
+"charging" the bet at reveal. Optional opt-in, muted-by-default SFX — never autoplay.

@@ -19,13 +19,42 @@ Keeping them separate is the whole point: sabotage and bad luck affect *how much
 
 ---
 
-## 2. The match loop
+## 2. The daily loop (and the match loop inside it)
 
-A "round" is a single match. The loop per match:
+The game is played as a **daily roguelike**. The World Cup's schedule does the
+pacing; Finland's timezone makes it sing (NA kickoffs land late evening → small
+hours Helsinki, settlement runs in the morning).
+
+```
+   morning              all day                 late evening → small hours
+ ┌──────────┐      ┌──────────────────┐        ┌────────────────────────┐
+ │ SETTLE   │  →   │  PLAN & SHOP      │   →    │  MATCHES PLAY & LOCK    │  → (next day)
+ │ last     │      │  • read recap     │        │  • each bet locks at    │
+ │ night's  │      │  • spend coins    │        │    its match's kickoff  │
+ │ slate    │      │  • build tonight's│        │  • power-up loadout     │
+ │ → coins  │      │    slip + stakes  │        │    locks at 1st kickoff │
+ └──────────┘      └──────────────────┘        └────────────────────────┘
+```
+
+A **slate** is a betting day: the matches whose kickoff falls between two
+consecutive day-boundaries. The boundary is a configurable Helsinki hour
+(`config.daily.rollover_hour_local`, default **09:00**) — after the last night
+game finishes (~06:00) and before the next slate's first kickoff. A game kicking
+off at 04:00 Helsinki belongs to the **previous evening's slate**. Slate membership
+is **computed** from `kickoff_at`, not stored. Rest days (no matches) simply skip a
+beat: no slate, no recap; the shop stays open on the existing balance.
+
+### The match loop inside a slate
 
 1. **Open** — match appears once the fixture is known; betting is open.
-2. **Lock** — betting closes at **kickoff**. No edits after lock.
-3. **Settle** — when the match finishes, the settlement job awards Glory and Coins and applies any active power-ups/sabotage.
+2. **Lock** — each match's bets close at **its own kickoff** (server-checked, UTC).
+   No edits after lock. **Power-ups and the Accumulator declaration lock at the
+   slate's *first* kickoff** — once the night's first ball is kicked your tactical
+   loadout is frozen, even though later matches' bets are still open.
+3. **Settle** — once each morning the settlement job runs the closing slate: awards
+   Glory and Coins, resolves stakes, applies active power-ups, then a **day-close**
+   step grants slate-scoped bonuses (participation, clean-slate, streak, interest)
+   and stamps the slate so the **morning recap** can render.
 
 ### Bet-locking nuance (player props)
 
@@ -76,16 +105,28 @@ All Glory from a match is multiplied by its stage factor. This keeps a trailing 
 
 ## 4. The Coin economy
 
-Coins flow gently — enough to fund strategy, not so much that the richest player snowballs.
+Coins are the roguelike economy — scarce enough that spending genuinely hurts.
+Income is tied to **daily engagement and skill**, awarded at morning settlement.
 
-| Source | Coins |
-| --- | --- |
-| **Participation** — submit a slip for a match | **+10¢** |
-| **Correct core bet** | **+1¢** each |
-| **Exact score hit** | **+5¢** bonus |
-| **Correct prop** | **+2¢** each |
+| Source | Coins | Scope |
+| --- | --- | --- |
+| **Daily participation** — submit a complete slip for *every* match on the slate | **+10¢** | per slate (day-close) |
+| **Correct outcome** | **+5¢** each | per bet |
+| **Goal-difference correct** | **+3¢** | per bet |
+| **Exact score** | **+10¢** bonus | per bet |
+| **Correct prop** | **+4¢** each | per bet |
+| **Clean slate** — every outcome on the slate correct | **+15¢** | per slate (day-close) |
 
-A typical engaged matchday nets a player roughly 15–30¢. Power-ups cost 25–50¢, so a meaningful purchase is a 1–2 matchday decision — that's the intended pacing.
+A solid 3-match night nets roughly **15–35¢** (e.g. `10 participation + 2×5 + 10 exact = 30¢`).
+Upgrades cost 60–150¢, so each upgrade is a **3–6 good-day decision** — the intended
+roguelike pacing. All values live in `config.coins.*`, tunable mid-tournament.
+
+> **One rule makes the whole economy strategic:** Coins are the *only* resource for
+> **both** the shop **and** staking. Every coin you stake is a coin you can't spend on
+> an upgrade — that shared pool is the build-vs-burn decision the game turns on.
+
+> Note: participation is a **Coin** reward (it was never a Glory reward). There is no
+> participation Glory.
 
 ---
 
@@ -103,34 +144,58 @@ This is what makes scoring "hybrid" rather than pure-rubric. Before a bet locks,
 - Stake multipliers stack with knockout multipliers but the **total multiplier per bet is capped at ×3.0** to prevent runaway swings.
 - Staking is opt-in: a player can ignore it entirely and still compete on the fixed rubric.
 
+**Implementation rulings (Phase 3 slice 2):**
+- A stake **hits only when the bet is `won`** — then its Glory is amplified by the
+  capped stage × stake multiplier, and you **keep the Coins** (the stake is a free
+  option, paid for only when wrong).
+- A **miss** (`lost`) forfeits the staked Coins; no Glory is lost.
+- A **void** (e.g. a prop player who never played) leaves the stake untouched.
+- The **goal-difference consolation** on a near-miss exact-score bet is a separate
+  rubric bonus — the stake never amplifies it, and the stake is still forfeited
+  because the exact bet itself lost.
+- Stakes are recorded at submission but **settled lazily** (no upfront Coin hold);
+  the balance check at submission is a point-in-time guard. See `DATA_MODEL.md`.
+
 ---
 
 ## 6. Power-ups, upgrades, sabotage
 
-All bought with Coins. Three kinds:
+All bought with Coins, in the daily shop. Three kinds. **Phase split:** the
+**upgrades** and **self-buff power-ups** ship in **Phase 3** (the daily-game
+overhaul); the **PvP sabotage + Ward** layer (and Crystal Ball, which reads
+opponents' slips) lands in **Phase 5**.
 
-### Power-ups (one-shot, self-buff)
+### Upgrades — permanent progression (Phase 3)
+
+The roguelike "build". Four paths; Coin Magnet and Bigger Wallet are **repeatable**
+(tiered) so there's always something to spend on.
+
+| Name | Cost | Effect | Path |
+| --- | --- | --- | --- |
+| **Coin Magnet** | 100¢ | +10% to all Coin income, permanently. Repeatable ×3 (10/20/30%). | 💰 Economy |
+| **The Vault** | 90¢ | Unspent Coins earn **+5% daily interest** at day-close (rounded down). | 💰 Economy |
+| **Bigger Wallet** | 60¢ | Stake cap +25¢. Repeatable (50→75→100→…). | 🎲 High-roller |
+| **Hot Hand** | 70¢ | Correct-outcome **streak** across consecutive slates pays escalating Coins: +2¢ at a 2-day streak, +4¢ at 3, +6¢ at 4+ (resets on a wrong-outcome day). | 🔥 Streak |
+| **Extra Prop Slot** | 80¢ | Bet on 3 props per match instead of 2. | 📊 Volume |
+| **Accumulator** | 120¢ | Once per slate, declare an **all-outcomes parlay**: if *every* outcome on the slate hits, earn a big flat Glory bonus (≈ +30 GP × stage). All-or-nothing; locks at first kickoff. | 📊 Volume |
+
+### Power-ups — one-shot, self-buff (Phase 3)
+
+Attached to a match/slate, consumed at settlement, applied *before* the ×3 cap.
+None touch another manager.
 
 | Name | Cost | Effect |
 | --- | --- | --- |
-| **Double Down** | 40¢ | ×2 Glory on one chosen bet this matchday (respects the ×3 cap). |
+| **Double Down** | 40¢ | ×2 Glory on one chosen bet this slate (respects the ×3 cap). |
 | **Insurance** | 25¢ | If your exact-score bet misses by one total goal, you still get the goal-difference bonus. |
 | **Hedge** | 35¢ | Submit two outcomes for one match; if either hits you score the outcome (exact-score bonus disabled for that match). |
-| **Crystal Ball** | 30¢ | Reveal one opponent's full slip for one match before lock. |
 | **Banker** | 20¢ | Nominate one match as your banker: +50% Glory if the slip fully hits, −50% if it fully busts. |
 
-### Upgrades (permanent progression)
+### Crystal Ball + sabotage (PvP, target a rival — Phase 5)
 
 | Name | Cost | Effect |
 | --- | --- | --- |
-| **Bigger Wallet** | 60¢ | Stake cap +25¢. |
-| **Extra Prop Slot** | 80¢ | Bet on 3 props per match instead of 2. |
-| **Coin Magnet** | 100¢ | +10% to all Coin income, permanently. |
-
-### Sabotage (PvP, target a rival)
-
-| Name | Cost | Effect |
-| --- | --- | --- |
+| **Crystal Ball** | 30¢ | Reveal one opponent's full slip for one match before lock. (Info, not sabotage — but reads rivals' bets, so it ships with the PvP layer.) |
 | **Jinx** | 40¢ | Halve a chosen opponent's Glory from their *next* match. (The one mechanic that touches earned Glory — and only Glory earned *after* the Jinx.) |
 | **Mugging** | 35¢ | Steal 20% of an opponent's Coin income from the next matchday. |
 | **Lockout** | 45¢ | Opponent can't use power-ups or sabotage on their next match. |

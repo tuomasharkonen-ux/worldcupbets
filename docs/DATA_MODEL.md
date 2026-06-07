@@ -33,7 +33,19 @@ Single-row global config. Keeps tunable values out of the code.
 | `phase` | text | `group` \| `knockout` \| `finished` |
 | `config` | jsonb | all tunable constants (scoring values, costs, multipliers) |
 
-`config.glory` holds the Glory payouts: `outcome_correct` (10), `exact_score_bonus` (15), `participation` (2), and the player props `first_goalscorer` (20), `anytime_scorer` (8), `carded` (6), `stat_leader` (15). Prop values were added in migration `002`.
+`config.glory` holds the Glory payouts: `outcome_correct` (10), `exact_score_bonus` (15), and the player props `first_goalscorer` (20), `anytime_scorer` (8), `carded` (6), `stat_leader` (15). Prop values were added in migration `002`. (A `glory.participation` placeholder existed in `001`; Phase 3 retires it — participation is a **Coin** reward, never Glory.)
+
+> **Phase 3 config (migration `003`)** expands `config.coins.*` to the daily rubric
+> (`participation`, `outcome`, `goal_difference`, `exact`, `prop`, `clean_slate`,
+> Coin Magnet/Vault/Hot Hand params) and adds `config.daily.rollover_hour_local`. See
+> `GAME_DESIGN.md` §4–§6.
+>
+> **Staking config (migration `004`)** restructures `config.stake` from the bare
+> `multipliers` array into `tiers` — `{ coins, mult }` pairs that carry each stake's
+> Coin cost alongside its Glory multiplier (`{0,1.0}`, `{10,1.25}`, `{25,1.5}`,
+> `{50,2.0}`) — plus `cap_coins` (per-bet ceiling, 50, raisable via Bigger Wallet) and
+> the existing `max_total_multiplier` (×3.0, the hard cap the engine enforces on the
+> combined stage × stake multiplier). See `GAME_DESIGN.md` §5.
 
 ### `managers`
 The five humans.
@@ -114,7 +126,7 @@ Who actually took the pitch (starting XI + subs who came on), from football-data
 | `footballer_id` | uuid FK → footballers | |
 | | | UNIQUE `(match_id, footballer_id)` |
 
-> **Void semantics:** a goalscorer/card prop on a player with no qualifying event settles as `void` (stake refunded, no Glory) **only if** we have lineup data and the player isn't in it. When the feed omits lineups, `match_appearances` stays empty for that match and the prop settles as `lost` instead — we can't prove non-appearance. Players who *did* score/get carded clearly appeared, so they win regardless.
+> **Void semantics:** a goalscorer/card prop on a player with no qualifying event settles as `void` (stake untouched — see staking note below — and no Glory) **only if** we have lineup data and the player isn't in it. When the feed omits lineups, `match_appearances` stays empty for that match and the prop settles as `lost` instead — we can't prove non-appearance. Players who *did* score/get carded clearly appeared, so they win regardless.
 
 ### `player_match_stats`
 Per-player granular stats, from Sofascore. Powers the Stat Leader prop. Sparse — rows only exist when the feed succeeded.
@@ -139,8 +151,8 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 | `match_id` | uuid FK → matches | |
 | `bet_type` | text | `outcome` \| `exact_score` \| `first_scorer` \| `anytime_scorer` \| `carded` \| `stat_leader` |
 | `selection` | jsonb | shape depends on type (see below) |
-| `stake_coins` | int | 0 if no stake |
-| `stake_mult` | numeric | 1.0 / 1.25 / 1.5 / 2.0 |
+| `stake_coins` | int | 0 if no stake; validated against `config.stake.tiers` + `cap_coins` at submission |
+| `stake_mult` | numeric | the staked tier's Glory multiplier: 1.0 / 1.25 / 1.5 / 2.0 |
 | `status` | text | `pending` \| `won` \| `lost` \| `void` |
 | `glory_awarded` | int | filled at settlement |
 | `created_at` | timestamptz | |
@@ -151,6 +163,18 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 - exact_score: `{ "home": 2, "away": 1 }`
 - first_scorer / anytime / carded: `{ "footballer_id": "..." }`
 - stat_leader: `{ "footballer_id": "...", "stat": "passes" }`
+
+> **Staking is settle-time, not held upfront (Phase 3 slice 2).** A stake is *not*
+> deducted when the bet is placed — `stake_coins`/`stake_mult` just record the wager.
+> At settlement the engine: amplifies a **won** bet's Glory by the combined stage ×
+> stake multiplier (capped at `max_total_multiplier`); forfeits the staked Coins on a
+> **miss** via a negative `stake_loss` ledger entry; and leaves a **void** untouched
+> (nothing was held to refund). The goal-difference consolation on a near-miss
+> exact-score bet is an independent rubric bonus the stake never amplifies. Because
+> nothing is held, the submission balance check is a point-in-time guard against the
+> slip total, not a reservation — a manager could in principle over-commit across
+> several slates' open bets and dip negative on a bad day. Acceptable at five-player
+> scale; revisit if it bites.
 
 ### `ledger`
 Append-only. Source of truth for every Glory and Coin movement.
@@ -196,6 +220,14 @@ Owned and/or active instances — purchases, active sabotages, consumed power-up
 | `consumed_at` | timestamptz | |
 
 Permanent upgrades (`kind = upgrade`) stay `active` forever and are read when computing a manager's stake cap, prop-slot count, and coin multiplier.
+
+### `manager_state` (Phase 3, planned)
+
+Per-manager scratch state the ledger isn't the right home for: the correct-outcome
+**streak** counter (Hot Hand), the **Accumulator** "declared/used this slate" flag,
+and **Vault** interest bookkeeping. A single `jsonb` column on `managers` (or a thin
+1:1 table) updated at day-close. Chosen over recomputing from settled bets each
+morning for simpler reads. Not yet built.
 
 ---
 

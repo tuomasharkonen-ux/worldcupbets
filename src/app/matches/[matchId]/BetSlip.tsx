@@ -5,6 +5,7 @@ import { useFormStatus } from 'react-dom';
 import { AlertCircle, CheckCircle2, Loader2, Lock, Save } from 'lucide-react';
 import { submitBet, type BetSlipState } from './actions';
 import { PropSlot, type PropType, type SlipSquads } from './PropSlot';
+import { StakeSelector, type StakeTier } from './StakeSelector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Flag } from '@/components/ui/flag';
@@ -41,14 +42,18 @@ interface Props {
   awayTeam: string;
   locked: boolean;
   squads: SlipSquads | null;
+  // Staking config (GAME_DESIGN §5) + the manager's current Coin balance.
+  stake: { tiers: StakeTier[]; capCoins: number; balance: number };
   existing: {
     outcome?: 'home' | 'draw' | 'away';
     exactScore?: { home: number; away: number };
     propSlot?: { type: PropType; playerId: string } | null;
+    // Coins staked per bet, prefilled when editing.
+    stakes?: { outcome?: number; exact?: number; prop?: number };
   };
 }
 
-export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, existing }: Props) {
+export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, existing }: Props) {
   const boundAction = submitBet.bind(null, matchId);
   const [state, formAction] = useActionState<BetSlipState, FormData>(boundAction, {});
 
@@ -110,6 +115,14 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, existing 
             );
           })}
         </div>
+        <StakeSelector
+          name="stake_outcome"
+          tiers={stake.tiers}
+          capCoins={stake.capCoins}
+          balance={stake.balance}
+          defaultCoins={existing.stakes?.outcome}
+          disabled={locked}
+        />
       </fieldset>
 
       {/* Exact score — required */}
@@ -156,6 +169,14 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, existing 
             />
           </div>
         </div>
+        <StakeSelector
+          name="stake_exact"
+          tiers={stake.tiers}
+          capCoins={stake.capCoins}
+          balance={stake.balance}
+          defaultCoins={existing.stakes?.exact}
+          disabled={locked}
+        />
       </fieldset>
 
       {/* Player prop — optional, one slot */}
@@ -165,7 +186,17 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, existing 
         </legend>
         {squads ? (
           <>
-            <PropSlot squads={squads} defaultValue={existing.propSlot ?? null} locked={locked} />
+            <PropSlot
+              squads={squads}
+              defaultValue={existing.propSlot ?? null}
+              locked={locked}
+              stake={{
+                tiers: stake.tiers,
+                capCoins: stake.capCoins,
+                balance: stake.balance,
+                defaultCoins: existing.stakes?.prop,
+              }}
+            />
             <p className="text-xs text-subtle">
               A pick voids (no points lost) if the player never takes the pitch.
             </p>

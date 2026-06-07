@@ -12,7 +12,7 @@ import {
 import { BetUpdate, CurrencyDelta, SettleInput, SettleResult } from './types';
 
 export function settle(input: SettleInput): SettleResult {
-  const { match, bets, config } = input;
+  const { match, bets } = input;
 
   if (match.home_score == null || match.away_score == null) {
     throw new Error(`settle called on match ${match.id} without a final score`);
@@ -29,34 +29,46 @@ export function settle(input: SettleInput): SettleResult {
 
     if (update.status === 'void') continue;
 
-    const points = update.pointsAwarded;
-
-    if (points > 0) {
+    if (update.pointsAwarded > 0) {
       deltas.push({
         managerId: bet.manager_id,
         currency: 'glory',
-        amount: points,
+        amount: update.pointsAwarded,
         reason: 'bet_win',
         refType: 'bet',
         refId: bet.id,
       });
     }
 
-    // Participation Points — awarded per slip (one per manager per match), not per bet.
-    // Handled by the caller to avoid double-counting across bets.
-  }
+    // Staking (GAME_DESIGN §5): the stake rides on the bet hitting. A miss forfeits
+    // the staked Coins (no Glory penalty); a win keeps them (the upside is amplified
+    // Glory, applied in the per-bet settle functions); a void leaves the stake
+    // untouched. Idempotent via the ledger's (reason, ref_type, ref_id, manager_id)
+    // unique index.
+    if (update.status === 'lost' && bet.stake_coins > 0) {
+      deltas.push({
+        managerId: bet.manager_id,
+        currency: 'coins',
+        amount: -bet.stake_coins,
+        reason: 'stake_loss',
+        refType: 'bet',
+        refId: bet.id,
+      });
+    }
 
-  // Participation Points: one entry per unique manager who had ≥1 pending bet.
-  const participatingManagers = new Set(bets.filter(b => b.status === 'pending').map(b => b.manager_id));
-  for (const managerId of participatingManagers) {
-    deltas.push({
-      managerId,
-      currency: 'glory',
-      amount: config.glory.participation,
-      reason: 'participation',
-      refType: 'match',
-      refId: match.id,
-    });
+    // Flat Coin income for a correct bet (GAME_DESIGN §4). Slate-scoped coins
+    // (daily participation, clean-slate, streak, interest) are granted at day-close
+    // in a later Phase 3 slice, not here.
+    if (update.coinsAwarded > 0) {
+      deltas.push({
+        managerId: bet.manager_id,
+        currency: 'coins',
+        amount: update.coinsAwarded,
+        reason: 'bet_coin',
+        refType: 'bet',
+        refId: bet.id,
+      });
+    }
   }
 
   return { deltas, betUpdates };
@@ -81,8 +93,24 @@ function settleBet(bet: Bet, input: SettleInput): BetUpdate {
       return settleCarded(bet, events, mult, config, appearances);
     default:
       // stat_leader is settled in Phase 4 (Sofascore)
-      return { betId: bet.id, status: 'void', pointsAwarded: 0 };
+      return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
   }
+}
+
+function outcomeOf(home: number, away: number): 'home' | 'draw' | 'away' {
+  if (home > away) return 'home';
+  if (home < away) return 'away';
+  return 'draw';
+}
+
+// The Glory multiplier applied to a winning bet: the knockout-stage multiplier
+// times the Coin stake multiplier, capped at config.stake.max_total_multiplier
+// (×3.0) so stacked bonuses can't cause runaway swings (GAME_DESIGN §5). The stake
+// only ever amplifies a *won* bet — losing bets forfeit the stake instead, and the
+// goal-difference consolation is an independent rubric bonus that the stake never
+// touches.
+function cappedMult(stageMult: number, stakeMult: number, config: LeagueConfig): number {
+  return Math.min(stageMult * stakeMult, config.stake.max_total_multiplier);
 }
 
 function settleOutcome(
@@ -93,20 +121,22 @@ function settleOutcome(
   config: LeagueConfig,
 ): BetUpdate {
   const { result } = bet.selection as OutcomeSelection;
-
-  let actualResult: 'home' | 'draw' | 'away';
-  if (home > away) actualResult = 'home';
-  else if (home < away) actualResult = 'away';
-  else actualResult = 'draw';
-
-  const won = result === actualResult;
+  const won = result === outcomeOf(home, away);
   return {
     betId: bet.id,
     status: won ? 'won' : 'lost',
-    pointsAwarded: won ? Math.round(config.glory.outcome_correct * mult * bet.stake_mult) : 0,
+    pointsAwarded: won
+      ? Math.round(config.glory.outcome_correct * cappedMult(mult, bet.stake_mult, config))
+      : 0,
+    coinsAwarded: won ? config.coins.outcome : 0,
   };
 }
 
+// The exact-score bet carries three tiers (GAME_DESIGN §3):
+//   • exact scoreline        → the full exact bonus + the goal-difference bonus
+//   • right outcome + margin → just the goal-difference bonus (status stays 'lost')
+//   • otherwise              → nothing
+// The separate outcome bet independently scores the +10 for a correct result.
 function settleExactScore(
   bet: Bet,
   home: number,
@@ -115,19 +145,36 @@ function settleExactScore(
   config: LeagueConfig,
 ): BetUpdate {
   const sel = bet.selection as ExactScoreSelection;
-  const won = sel.home === home && sel.away === away;
+  const gd = config.glory.goal_difference ?? 0;
 
-  let points = 0;
-  if (won) {
-    const basePoints = config.glory.outcome_correct + config.glory.exact_score_bonus;
-    points = Math.round(basePoints * mult * bet.stake_mult);
+  const exact = sel.home === home && sel.away === away;
+  const marginRight =
+    outcomeOf(sel.home, sel.away) === outcomeOf(home, away) &&
+    sel.home - sel.away === home - away;
+
+  if (exact) {
+    const basePoints = config.glory.outcome_correct + config.glory.exact_score_bonus + gd;
+    return {
+      betId: bet.id,
+      status: 'won',
+      pointsAwarded: Math.round(basePoints * cappedMult(mult, bet.stake_mult, config)),
+      coinsAwarded: config.coins.exact,
+    };
   }
 
-  return {
-    betId: bet.id,
-    status: won ? 'won' : 'lost',
-    pointsAwarded: points,
-  };
+  // Right outcome + right margin but not exact: a consolation, not a hit. The bet
+  // "lost" (so a stake is forfeited), and the goal-difference Glory uses only the
+  // stage multiplier — the stake never amplifies a losing bet.
+  if (marginRight) {
+    return {
+      betId: bet.id,
+      status: 'lost',
+      pointsAwarded: Math.round(gd * mult),
+      coinsAwarded: config.coins.goal_difference,
+    };
+  }
+
+  return { betId: bet.id, status: 'lost', pointsAwarded: 0, coinsAwarded: 0 };
 }
 
 // ─── player props (Phase 2) ──────────────────────────────────────────────────
@@ -158,14 +205,15 @@ function propResult(
   pickId: string,
   won: boolean,
   points: number,
+  coins: number,
   appearances: string[] | undefined,
 ): BetUpdate {
-  if (won) return { betId: bet.id, status: 'won', pointsAwarded: points };
+  if (won) return { betId: bet.id, status: 'won', pointsAwarded: points, coinsAwarded: coins };
   const haveLineups = appearances != null && appearances.length > 0;
   if (haveLineups && !appearances!.includes(pickId)) {
-    return { betId: bet.id, status: 'void', pointsAwarded: 0 };
+    return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
   }
-  return { betId: bet.id, status: 'lost', pointsAwarded: 0 };
+  return { betId: bet.id, status: 'lost', pointsAwarded: 0, coinsAwarded: 0 };
 }
 
 function settleScorerProp(
@@ -184,9 +232,9 @@ function settleScorerProp(
       : events.some(e => isScoringEvent(e) && e.footballer_id === pickId);
 
   const basePoints = (kind === 'first' ? config.glory.first_goalscorer : config.glory.anytime_scorer) ?? 0;
-  const points = won ? Math.round(basePoints * mult * bet.stake_mult) : 0;
+  const points = won ? Math.round(basePoints * cappedMult(mult, bet.stake_mult, config)) : 0;
 
-  return propResult(bet, pickId, won, points, appearances);
+  return propResult(bet, pickId, won, points, config.coins.prop, appearances);
 }
 
 function settleCarded(
@@ -203,9 +251,9 @@ function settleCarded(
   );
 
   const basePoints = config.glory.carded ?? 0;
-  const points = won ? Math.round(basePoints * mult * bet.stake_mult) : 0;
+  const points = won ? Math.round(basePoints * cappedMult(mult, bet.stake_mult, config)) : 0;
 
-  return propResult(bet, pickId, won, points, appearances);
+  return propResult(bet, pickId, won, points, config.coins.prop, appearances);
 }
 
 // Re-export types so callers only need to import from engine.ts

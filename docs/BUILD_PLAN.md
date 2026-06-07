@@ -15,7 +15,7 @@ Build order is deliberately **vertical then horizontal**: get one thin slice wor
 | 0 — Foundations | ✅ Done |
 | 1 — Core betting loop (MVP) | ✅ Done |
 | 2 — Player props | ✅ Done |
-| 3 — Coins + hybrid staking | 🟡 Partial (schema, config, and leaderboard coin display exist; `stake_mult` applied in engine; no staking UI or coin income yet) |
+| 3 — The Daily Game: coins, staking, shop & daily loop | 🟡 In progress (slices 1–2 built: coin income + goal-difference bonus + staking with ×3 cap, forfeit-on-miss, and the bet-slip stake widget; daily slate, shop, and recap not built) |
 | 4 — Stat Leader prop | ⬜ Not started |
 | 5 — Shop | ⬜ Not started |
 | 6 — Draft / auction | ⬜ Not started |
@@ -76,16 +76,62 @@ Goal: the prop layer, still on football-data.org only (no Sofascore yet).
 
 ---
 
-## Phase 3 — Coins + hybrid staking
+## Phase 3 — The Daily Game: coins, staking, shop & daily loop
 
-Goal: the second currency and the staking mechanic.
+Goal: turn the per-match sandbox into a **daily roguelike** — bet on tonight's slate,
+wake up to a recap, spend Coins in the shop, repeat. This is the last must-have before
+kickoff (Phases 0–3 = a complete, fun game). Full design in `GAME_DESIGN.md`
+(daily loop §2, coin economy §4, staking §5, shop §6) and motion/recap in
+`DESIGN_SYSTEM.md`.
 
-- [ ] Coin income on settlement (participation, correct bets) → `ledger`.
-- [ ] Balances UI (Glory + Coins).
-- [ ] Optional stake attached to any bet at submission; settlement applies the multiplier / forfeits stake.
-- [ ] ×3 total-multiplier cap enforced.
+Decisions locked (2026-06-07): settle **once each morning** (Hobby-friendly);
+shop = **upgrades + self-buff power-ups** (PvP sabotage/Ward → Phase 5); **full six
+upgrades** incl. Vault / Hot Hand / Accumulator; streak/Accumulator/interest state in
+a **`manager_state` jsonb**; rest days skip a beat; power-ups & Accumulator **lock at
+the slate's first kickoff**.
 
-**Done when:** a staked correct bet pays amplified Glory, a staked wrong bet costs Coins, and balances reconcile against the ledger.
+Built as vertical slices, each shippable on its own. Power-ups (slice 5) can slip
+post-kickoff without blocking launch — upgrades are the spine.
+
+1. ✅ **Coins go live** — settlement awards flat Coins per the §4 rubric (correct
+   outcome +5, exact +10, goal-difference +3, prop +4 — per bet) via `bet_coin` ledger
+   entries; cached `managers.coins` reconciles (settle route already recomputes from
+   the ledger). Also implemented the **goal-difference bonus** (Glory +5 / Coin +3)
+   that §3 specced but the engine never built, and **retired Glory-participation**
+   (participation is slate-scoped Coin → slice 3). Migration `003_phase3_coins.sql`;
+   engine + types updated; 26 unit tests green. *Pending: apply `003` to Supabase.*
+2. ✅ **Staking** — per-bet stake widget (No stake / 10¢ / 25¢ / 50¢, chips gated by
+   `cap_coins` + balance) on the bet slip writing `stake_coins`/`stake_mult`; tier
+   costs + cap live in `league.config.stake` (`tiers` + `cap_coins`). The engine
+   amplifies a **won** bet's Glory by the combined stage × stake multiplier, **capped
+   at ×3.0** (`max_total_multiplier`), and forfeits the staked Coins on a **miss** via
+   a negative `stake_loss` ledger entry (no Glory penalty). Settle-time model: a
+   **void** leaves the stake untouched (nothing was held), a **win** keeps the Coins,
+   and the goal-difference consolation is an independent rubric bonus the stake never
+   amplifies. Submission validates each stake against the tiers + cap and the slip
+   total against the manager's balance. Migration `004_phase3_staking.sql`; 5 new unit
+   tests (31 total green). *Pending: apply `003` + `004` to Supabase.*
+3. **Daily slate view** — compute slates from `kickoff_at` + `rollover_hour_local`;
+   `/today` becomes home (a single screen with **four states**: betting → you're-all-set
+   → settling/waiting → recap-ready — see `DESIGN_SYSTEM.md`), `/fixtures` demoted to a
+   "Full schedule" view; day-close step grants participation + clean-slate + streak +
+   interest. The **"you're all set"** state shows your submitted slip (still editable
+   until each match's kickoff).
+4. **Shop — upgrades** — seed `shop_items`; purchase flow → `manager_items` +
+   `purchase` ledger entry; settlement/submission read active upgrades (Coin Magnet
+   income mult, Bigger Wallet stake cap, Extra Prop Slot count, Vault/Hot Hand/
+   Accumulator).
+5. **Shop — self-buff power-ups** — Double Down, Insurance, Hedge, Banker as pure
+   settlement modifiers applied before the ×3 cap; consume idempotently.
+6. **Morning recap + polish** — the sequenced reveal (`DESIGN_SYSTEM.md`), including the
+   **settling/waiting** state ("results still coming in — check back soon", with N-of-M
+   settled) that holds until every slate match has `settled_at`; `<GlassFlare>` ambient
+   flare. **Settle scheduling is done** — external cron-job.org sweep, hourly 06:00–10:00
+   Helsinki (idempotent), not Vercel cron; see the cron-settle-schedule memory.
+
+**Done when:** you bet on tonight's slate, wake to a recap that pays amplified Glory on
+staked hits and costs Coins on staked misses, spend Coins on an upgrade that visibly
+changes your next slate, and every balance reconciles against the ledger.
 
 ---
 

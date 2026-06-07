@@ -18,15 +18,23 @@
     "glory": {
       "outcome_correct": 10,
       "exact_score_bonus": 15,
-      "participation": 2
+      "goal_difference": 5
     },
     "coins": {
       "starting_balance": 100,
-      "participation": 5,
-      "correct_bet": 10
+      "outcome": 5,
+      "goal_difference": 3,
+      "exact": 10,
+      "prop": 4
     },
     "stake": {
-      "multipliers": [1.0, 1.25, 1.5, 2.0],
+      "tiers": [
+        { "coins": 0, "mult": 1.0 },
+        { "coins": 10, "mult": 1.25 },
+        { "coins": 25, "mult": 1.5 },
+        { "coins": 50, "mult": 2.0 }
+      ],
+      "cap_coins": 50,
       "max_total_multiplier": 3.0
     },
     "glory_multipliers": {

@@ -8,7 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BetSlip, type SlipSquads } from './BetSlip';
 import { Flag } from '@/components/ui/flag';
-import type { Bet, Footballer, Match, Team } from '@/types/db';
+import type { Bet, Footballer, League, Match, Team } from '@/types/db';
 
 type PropField = 'first_scorer' | 'anytime_scorer' | 'carded';
 const PROP_LABELS: Record<PropField, string> = {
@@ -61,9 +61,26 @@ export default async function MatchPage({
 
   const { data: existingBets } = await db
     .from('bets')
-    .select('bet_type, selection, status')
+    .select('bet_type, selection, status, stake_coins')
     .eq('match_id', matchId)
     .eq('manager_id', session.managerId!);
+
+  // Staking config + this manager's Coin balance for the stake widget (GAME_DESIGN §5).
+  const { data: league } = await db
+    .from('league')
+    .select('config')
+    .eq('id', 1)
+    .single<Pick<League, 'config'>>();
+  const { data: me } = await db
+    .from('managers')
+    .select('coins')
+    .eq('id', session.managerId!)
+    .single<{ coins: number }>();
+  const stakeConfig = {
+    tiers: league?.config.stake.tiers ?? [{ coins: 0, mult: 1.0 }],
+    capCoins: league?.config.stake.cap_coins ?? 0,
+    balance: me?.coins ?? 0,
+  };
 
   // Squads for the prop pickers (null until squads-sync has populated them).
   const { data: footballers } = await db
@@ -83,7 +100,7 @@ export default async function MatchPage({
       }
     : null;
 
-  const bets = (existingBets ?? []) as Pick<Bet, 'bet_type' | 'selection' | 'status'>[];
+  const bets = (existingBets ?? []) as Pick<Bet, 'bet_type' | 'selection' | 'status' | 'stake_coins'>[];
   const outcomeBet = bets.find(b => b.bet_type === 'outcome');
   const exactBet = bets.find(b => b.bet_type === 'exact_score');
 
@@ -101,6 +118,11 @@ export default async function MatchPage({
       ? (exactBet.selection as { home: number; away: number })
       : undefined,
     propSlot,
+    stakes: {
+      outcome: outcomeBet?.stake_coins,
+      exact: exactBet?.stake_coins,
+      prop: propBet?.stake_coins,
+    },
   };
 
   const stageLabel = match.group_label ? `Group ${match.group_label}` : match.stage.toUpperCase();
@@ -205,6 +227,7 @@ export default async function MatchPage({
               awayTeam={match.away_team.name}
               locked={locked}
               squads={squads}
+              stake={stakeConfig}
               existing={existingForSlip}
             />
           </div>
