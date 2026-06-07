@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
   const { data: match, error } = await db
     .from('matches')
     .insert({
-      fd_match_id: Date.now(), // unique per seed call
+      fd_match_id: Math.floor(Date.now() / 1000), // seconds fit in Postgres integer
       stage: 'group',
       group_label: 'T',
       home_team_id: teamA.id,
