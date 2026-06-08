@@ -5,6 +5,7 @@ import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Flag } from '@/components/ui/flag';
 import type { Manager } from '@/types/db';
 
 const MEDAL = [
@@ -13,6 +14,12 @@ const MEDAL = [
   { Icon: Medal, color: 'text-[#d9883e]' }, // 3rd — bronze
 ];
 
+/** Surname only — keeps the favourite-player tag short on narrow screens. */
+function lastName(full: string): string {
+  const parts = full.trim().split(/\s+/);
+  return parts[parts.length - 1] || full;
+}
+
 export default async function LeaderboardPage() {
   const session = await getSession();
   if (!session.managerId) redirect('/join');
@@ -20,10 +27,33 @@ export default async function LeaderboardPage() {
 
   const { data: managers } = await db
     .from('managers')
-    .select('id, display_name, glory, coins')
+    .select('id, display_name, glory, coins, favorite_team_id, favorite_footballer_id')
     .order('glory', { ascending: false });
 
-  const rows = (managers ?? []) as Pick<Manager, 'id' | 'display_name' | 'glory' | 'coins'>[];
+  const rows = (managers ?? []) as Pick<
+    Manager,
+    'id' | 'display_name' | 'glory' | 'coins' | 'favorite_team_id' | 'favorite_footballer_id'
+  >[];
+
+  // Batch-resolve the favourite team + player for every row (avoids an N+1 per manager).
+  const teamIds = [...new Set(rows.map(r => r.favorite_team_id).filter(Boolean))] as string[];
+  const playerIds = [...new Set(rows.map(r => r.favorite_footballer_id).filter(Boolean))] as string[];
+
+  const [{ data: teams }, { data: players }] = await Promise.all([
+    teamIds.length
+      ? db.from('teams').select('id, name, country_code').in('id', teamIds)
+      : Promise.resolve({ data: [] }),
+    playerIds.length
+      ? db.from('footballers').select('id, name').in('id', playerIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const teamById = new Map(
+    ((teams ?? []) as { id: string; name: string; country_code: string }[]).map(t => [t.id, t]),
+  );
+  const playerById = new Map(
+    ((players ?? []) as { id: string; name: string }[]).map(p => [p.id, p]),
+  );
 
   return (
     <>
@@ -44,16 +74,21 @@ export default async function LeaderboardPage() {
               {rows.map((m, i) => {
                 const isYou = m.id === session.managerId;
                 const medal = MEDAL[i];
+                const team = m.favorite_team_id ? teamById.get(m.favorite_team_id) : null;
+                const player = m.favorite_footballer_id
+                  ? playerById.get(m.favorite_footballer_id)
+                  : null;
+                const hasFavorites = team || player;
                 return (
                   <li
                     key={m.id}
-                    className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
+                    className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 transition-colors ${
                       isYou
                         ? 'bg-[color-mix(in_oklab,var(--color-primary-bright)_16%,transparent)] ring-1 ring-[var(--color-primary-bright)]/40'
                         : 'bg-surface-2/60'
                     }`}
                   >
-                    <span className="grid w-8 shrink-0 place-items-center">
+                    <span className="grid w-7 shrink-0 place-items-center">
                       {medal ? (
                         <medal.Icon className={`size-6 ${medal.color}`} aria-label={`Rank ${i + 1}`} />
                       ) : (
@@ -61,25 +96,45 @@ export default async function LeaderboardPage() {
                       )}
                     </span>
 
-                    <span className="min-w-0 flex-1 truncate font-display font-semibold text-foreground">
-                      {m.display_name}
-                      {isYou && (
-                        <Badge variant="primary" size="sm" className="ml-2 align-middle">
-                          you
-                        </Badge>
+                    {/* Name + subtle favourites — gets the lion's share of the row width. */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="truncate font-display font-semibold text-foreground">
+                          {m.display_name}
+                        </span>
+                        {isYou && (
+                          <Badge variant="primary" size="sm" className="shrink-0">
+                            you
+                          </Badge>
+                        )}
+                      </div>
+                      {hasFavorites && (
+                        <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-subtle">
+                          {team && (
+                            <Flag
+                              name={team.name}
+                              countryCode={team.country_code}
+                              size="sm"
+                              className="shrink-0"
+                            />
+                          )}
+                          {player && <span className="truncate">{lastName(player.name)}</span>}
+                        </div>
                       )}
-                    </span>
+                    </div>
 
-                    <span className="flex items-center gap-1.5 font-mono tabular-nums text-points">
-                      <Sparkles className="size-4" aria-hidden />
-                      <span className="font-semibold">{m.glory}</span>
-                      <span className="text-xs text-points/70">pts</span>
-                    </span>
-
-                    <span className="flex w-20 items-center justify-end gap-1.5 font-mono tabular-nums text-muted">
-                      <Coins className="size-4" aria-hidden />
-                      {m.coins}
-                    </span>
+                    {/* Points lead; credits sit underneath, deliberately smaller. */}
+                    <div className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="flex items-center gap-1 font-mono tabular-nums text-points">
+                        <Sparkles className="size-4" aria-hidden />
+                        <span className="text-lg font-bold leading-none">{m.glory}</span>
+                        <span className="text-[0.7rem] text-points/70">pts</span>
+                      </span>
+                      <span className="flex items-center gap-1 font-mono text-[0.7rem] tabular-nums text-muted/80">
+                        <Coins className="size-3" aria-hidden />
+                        {m.coins}
+                      </span>
+                    </div>
                   </li>
                 );
               })}

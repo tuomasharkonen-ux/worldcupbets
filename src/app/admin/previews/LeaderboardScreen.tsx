@@ -3,6 +3,7 @@
 import { Trophy, Crown, Medal, Coins, Sparkles } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Flag } from '@/components/ui/flag';
 import { ScreenFrame } from './ScreenFrame';
 import { MOCK_LEADERBOARD, MOCK_ME_ID } from '../mock';
 
@@ -11,6 +12,11 @@ const MEDAL = [
   { Icon: Medal, color: 'text-[#cbd5e1]' },
   { Icon: Medal, color: 'text-[#d9883e]' },
 ];
+
+function lastName(full: string): string {
+  const parts = full.trim().split(/\s+/);
+  return parts[parts.length - 1] || full;
+}
 
 export function LeaderboardScreen() {
   const rows = MOCK_LEADERBOARD;
@@ -27,16 +33,17 @@ export function LeaderboardScreen() {
             {rows.map((m, i) => {
               const isYou = m.id === MOCK_ME_ID;
               const medal = MEDAL[i];
+              const hasFavorites = m.favTeam || m.favPlayer;
               return (
                 <li
                   key={m.id}
-                  className={`flex items-center gap-3 rounded-xl px-3 py-3 transition-colors ${
+                  className={`flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 transition-colors ${
                     isYou
                       ? 'bg-[color-mix(in_oklab,var(--color-primary-bright)_16%,transparent)] ring-1 ring-[var(--color-primary-bright)]/40'
                       : 'bg-surface-2/60'
                   }`}
                 >
-                  <span className="grid w-8 shrink-0 place-items-center">
+                  <span className="grid w-7 shrink-0 place-items-center">
                     {medal ? (
                       <medal.Icon className={`size-6 ${medal.color}`} aria-label={`Rank ${i + 1}`} />
                     ) : (
@@ -44,23 +51,34 @@ export function LeaderboardScreen() {
                     )}
                   </span>
 
-                  <span className="min-w-0 flex-1 truncate font-display font-semibold text-foreground">
-                    {m.display_name}
-                    {isYou && (
-                      <Badge variant="primary" size="sm" className="ml-2 align-middle">you</Badge>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="truncate font-display font-semibold text-foreground">
+                        {m.display_name}
+                      </span>
+                      {isYou && (
+                        <Badge variant="primary" size="sm" className="shrink-0">you</Badge>
+                      )}
+                    </div>
+                    {hasFavorites && (
+                      <div className="mt-1 flex min-w-0 items-center gap-1.5 text-xs text-subtle">
+                        {m.favTeam && <Flag name={m.favTeam} size="sm" className="shrink-0" />}
+                        {m.favPlayer && <span className="truncate">{lastName(m.favPlayer)}</span>}
+                      </div>
                     )}
-                  </span>
+                  </div>
 
-                  <span className="flex items-center gap-1.5 font-mono tabular-nums text-points">
-                    <Sparkles className="size-4" aria-hidden />
-                    <span className="font-semibold">{m.glory}</span>
-                    <span className="text-xs text-points/70">pts</span>
-                  </span>
-
-                  <span className="flex w-20 items-center justify-end gap-1.5 font-mono tabular-nums text-muted">
-                    <Coins className="size-4" aria-hidden />
-                    {m.coins}
-                  </span>
+                  <div className="flex shrink-0 flex-col items-end gap-1">
+                    <span className="flex items-center gap-1 font-mono tabular-nums text-points">
+                      <Sparkles className="size-4" aria-hidden />
+                      <span className="text-lg font-bold leading-none">{m.glory}</span>
+                      <span className="text-[0.7rem] text-points/70">pts</span>
+                    </span>
+                    <span className="flex items-center gap-1 font-mono text-[0.7rem] tabular-nums text-muted/80">
+                      <Coins className="size-3" aria-hidden />
+                      {m.coins}
+                    </span>
+                  </div>
                 </li>
               );
             })}

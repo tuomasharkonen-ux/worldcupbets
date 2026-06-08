@@ -428,12 +428,19 @@ export function fixturesData(): FixturesData {
 
 // ─── Leaderboard ───────────────────────────────────────────────────────────────
 
-export const MOCK_LEADERBOARD: { id: string; display_name: string; glory: number; coins: number }[] = [
-  { id: 'a', display_name: 'Semi', glory: 295, coins: 410 },
-  { id: 'b', display_name: 'Janne', glory: 268, coins: 150 },
-  { id: 'me', display_name: 'You', glory: 300, coins: 192 },
-  { id: 'c', display_name: 'Pekka', glory: 192, coins: 88 },
-  { id: 'd', display_name: 'Aino', glory: 120, coins: 305 },
+export const MOCK_LEADERBOARD: {
+  id: string;
+  display_name: string;
+  glory: number;
+  coins: number;
+  favTeam: string | null;
+  favPlayer: string | null;
+}[] = [
+  { id: 'a', display_name: 'Semi', glory: 295, coins: 410, favTeam: 'Brazil', favPlayer: 'Vinícius Júnior' },
+  { id: 'b', display_name: 'Janne', glory: 268, coins: 150, favTeam: 'France', favPlayer: 'Kylian Mbappé' },
+  { id: 'me', display_name: 'You', glory: 300, coins: 192, favTeam: 'Argentina', favPlayer: 'Lionel Messi' },
+  { id: 'c', display_name: 'Pekka', glory: 192, coins: 88, favTeam: 'England', favPlayer: null },
+  { id: 'd', display_name: 'Aino', glory: 120, coins: 305, favTeam: null, favPlayer: null },
 ]
   .sort((x, y) => y.glory - x.glory);
 
