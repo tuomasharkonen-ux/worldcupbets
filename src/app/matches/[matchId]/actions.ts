@@ -64,7 +64,7 @@ export async function submitBet(
     return { error: 'Enter an exact score.' };
   }
   if (chosenProps.length > MAX_PROP_SLOTS) {
-    return { error: `Only ${MAX_PROP_SLOTS} player prop allowed for now.` };
+    return { error: `Only ${MAX_PROP_SLOTS} player bet allowed for now.` };
   }
 
   // Validate exact score values

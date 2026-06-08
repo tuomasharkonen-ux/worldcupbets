@@ -291,7 +291,7 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
       <fieldset className="space-y-2.5">
         <legend className="flex w-full items-center justify-between text-sm font-medium text-muted">
           <span>
-            Player prop <span className="font-normal text-subtle">(optional)</span>
+            Player bet <span className="font-normal text-subtle">(optional)</span>
           </span>
           {propType && (
             <span className="font-mono text-xs font-semibold text-points">
@@ -308,7 +308,7 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
           />
         ) : (
           <p className="rounded-2xl border border-border bg-surface-2 px-4 py-3 text-xs text-subtle">
-            Player props open once squads are confirmed.
+            Player bets open once squads are confirmed.
           </p>
         )}
       </fieldset>

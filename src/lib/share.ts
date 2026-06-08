@@ -21,7 +21,7 @@ type ShareTeam = { name: string; country_code: string };
 type ShareMatch = { id: string; home_team: ShareTeam; away_team: ShareTeam };
 
 // One match per row — `🇧🇷 BRA 2–1 CRO 🇭🇷`, with an inline `⚡×N` when the slip
-// carries a stake multiplier — and any player prop indented beneath its match.
+// carries a stake multiplier — and any player bet on its own line beneath the match.
 export function buildSlateShareText(
   matchDay: number,
   members: ShareMatch[],
@@ -48,9 +48,9 @@ export function buildSlateShareText(
     const prop = bs.find(b => isShareProp(b.bet_type));
     if (prop) {
       const name = playerName.get((prop.selection as FootballerSelection).footballer_id) ?? 'Player';
-      lines.push(`   ${PROP_SHARE[prop.bet_type](name)}`);
+      lines.push(PROP_SHARE[prop.bet_type](name));
     }
   }
-  lines.push('', '🔗 worldcupbets.vercel.app');
+  lines.push('', '🔗 https://worldcupbets.vercel.app');
   return lines.join('\n');
 }

@@ -167,7 +167,7 @@ function buildRecapShareText(data: RecapData): string {
     lines.push(`🏆 ${ordinal(me.rankAfter)}${move}`);
   }
 
-  lines.push('', '🔗 worldcupbets.vercel.app');
+  lines.push('', '🔗 https://worldcupbets.vercel.app');
   return lines.join('\n');
 }
 

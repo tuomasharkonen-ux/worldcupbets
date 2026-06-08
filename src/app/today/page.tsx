@@ -354,7 +354,7 @@ export default async function TodayPage() {
                 {outcomeLabel((outcome!.selection as OutcomeSelection).result, m.home_team.name, m.away_team.name)}
                 {' · '}
                 {(exact!.selection as ExactScoreSelection).home}–{(exact!.selection as ExactScoreSelection).away}
-                {prop ? ' · prop' : ''}
+                {prop ? ' · player bet' : ''}
               </span>
               {totalStake > 0 && <Badge variant="primary" size="sm">{totalStake}¢ staked</Badge>}
               {editable && !locked && <Pencil className="size-3.5 shrink-0 text-subtle" aria-hidden />}

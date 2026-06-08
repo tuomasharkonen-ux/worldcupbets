@@ -201,7 +201,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
         </div>
       ) : locked ? (
         <p className="rounded-2xl border border-border bg-surface-2 px-4 py-3 text-sm text-subtle">
-          No player prop.
+          No player bet.
         </p>
       ) : (
         <button
@@ -210,7 +210,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
           className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border-strong bg-surface-2/40 px-4 py-5 font-display text-sm font-semibold text-muted transition-colors hover:border-[var(--color-primary-bright)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
         >
           <Plus className="size-5" aria-hidden />
-          Add a player prop
+          Add a player bet
         </button>
       )}
 
@@ -218,7 +218,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
         <DialogContent className="gap-0" showClose>
           {step === 'type' ? (
             <>
-              <DialogTitle>Add a player prop</DialogTitle>
+              <DialogTitle>Add a player bet</DialogTitle>
               <DialogDescription className="mt-1">Pick one prop to fill this slot.</DialogDescription>
               <div className="mt-4 space-y-2.5">
                 {PROP_ORDER.map(type => {
