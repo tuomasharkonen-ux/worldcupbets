@@ -1,5 +1,6 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { Trophy, Coins, UserRound, Lock, LogOut, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Trophy, Coins, UserRound, Lock, LogOut, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { getSession } from '@/lib/session';
 import { signOut } from '@/app/actions';
 import { db } from '@/lib/supabase';
@@ -61,6 +62,13 @@ export default async function ProfilePage({
 
   return (
     <main className="mx-auto w-full max-w-xl space-y-6 px-4 py-8">
+      <Button asChild variant="ghost" size="sm" className="-ml-2 self-start">
+        <Link href="/today">
+          <ArrowLeft className="size-4" aria-hidden />
+          Back
+        </Link>
+      </Button>
+
       <h1 className="text-glow font-display text-3xl font-bold tracking-tight text-foreground">
         Your profile
       </h1>

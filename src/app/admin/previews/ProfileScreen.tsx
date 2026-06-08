@@ -1,6 +1,6 @@
 'use client';
 
-import { Trophy, Coins, UserRound, Lock, LogOut } from 'lucide-react';
+import { ArrowLeft, Trophy, Coins, UserRound, Lock, LogOut } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -14,6 +14,11 @@ export function ProfileScreen() {
   const avatar = '🦁';
   return (
     <main className="mx-auto w-full max-w-xl space-y-6 px-4 py-8">
+      <Button type="button" variant="ghost" size="sm" className="-ml-2">
+        <ArrowLeft className="size-4" aria-hidden />
+        Back
+      </Button>
+
       <h1 className="text-glow font-display text-3xl font-bold tracking-tight text-foreground">
         Your profile
       </h1>
