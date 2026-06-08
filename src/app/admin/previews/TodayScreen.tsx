@@ -8,7 +8,9 @@ import { Button } from '@/components/ui/button';
 import { Flag } from '@/components/ui/flag';
 import { Countdown } from '@/components/Countdown';
 import { Recap } from '@/app/today/Recap';
+import { ShareBetsButton } from '@/app/today/ShareBetsButton';
 import { slateLabel } from '@/lib/slate';
+import { buildSlateShareText } from '@/lib/share';
 import type { Bet, ExactScoreSelection, OutcomeSelection } from '@/types/db';
 import { ScreenFrame } from './ScreenFrame';
 import { MOCK_RECAP, todayScenario, type MatchRow, type TodayVariant } from '../mock';
@@ -119,7 +121,13 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
     return bs.some(b => b.bet_type === 'outcome') && bs.some(b => b.bet_type === 'exact_score');
   };
   const firstKickoff = members[0].kickoff_at;
-  const missingCount = members.filter(m => !hasCompleteCore(m.id)).length;
+
+  // Share digest for the all-set preview, built from the same pure helper the real
+  // page uses. The mock slate's lone prop is on footballer 'p-x'.
+  const shareText =
+    state === 'allset'
+      ? buildSlateShareText(matchDay, members, betsByMatch, new Map([['p-x', 'A. Striker']]))
+      : null;
 
   function MatchRowInner({ m, editable }: { m: MatchRow; editable: boolean }) {
     const locked = m.status !== 'scheduled' || now >= new Date(m.kickoff_at);
@@ -195,16 +203,17 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
             </p>
           </div>
           <Countdown target={firstKickoff} />
+          {shareText && <ShareBetsButton text={shareText} />}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3 py-3 text-center">
           <Ticket className="size-12 text-primary-bright" aria-hidden />
           <div>
             <p className="font-display text-2xl font-bold text-foreground">
-              Place your bets for Game Day {matchDay}
+              Place your bets
             </p>
             <p className="mt-1.5 text-base text-muted">
-              {missingCount} of {members.length} {missingCount === 1 ? 'match' : 'matches'} still need a pick.
+              Match Day {matchDay}
             </p>
           </div>
           <Countdown target={firstKickoff} />

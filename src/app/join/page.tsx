@@ -9,6 +9,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   wrong_passcode: 'Wrong passcode — check with the league admin.',
   pin_format: 'Your PIN must be 4–6 digits.',
   wrong_pin: 'Wrong PIN for that name. New here? Pick a different name.',
+  locked: 'Too many wrong PINs for that name. Try again in about 15 minutes.',
   league_full: 'The league is full — ask the admin to make room.',
   server_error: 'Something went wrong. Try again.',
 };

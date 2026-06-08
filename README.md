@@ -26,6 +26,7 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 2. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and/or an Exact Score bet. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat.
 3. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Points movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
 4. **Leaderboard** — managers ranked by Points.
+5. **Share** — once your slate is in, the all-set screen offers a **Share my bets** button that copies a compact, emoji-flag digest of your picks to the clipboard (Wordle-style, ready to paste into WhatsApp); the morning recap offers **Share my results** — a spoiler-free 🟩/⬛/⬜ grid with your points and leaderboard move. Both end in a link back to the game.
 
 ## Project layout
 
@@ -37,7 +38,7 @@ src/
     fixtures/             full schedule grouped by NA match day (read-only; only today's slate is tappable)
     matches/[matchId]/    bet slip (page + BetSlip client component + action)
     leaderboard/          Points + Coins ranking
-    today/                daily slate: betting → all-set → settling → recap
+    today/                daily slate: betting → all-set → settling → recap (+ ShareBetsButton)
     admin/                hidden preview gallery — every view on mock data (no DB/session)
     api/cron/             fixtures-sync, squads-sync, settle  (CRON_SECRET-guarded)
     api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
@@ -45,7 +46,7 @@ src/
     Nav.tsx               top navigation (glass)
     ui/                   design-system primitives: button, card, badge, input
   settlement/             pure, unit-tested engine + types + fixtures
-  lib/                    supabase client, session, cron auth, cn() class helper
+  lib/                    supabase client, session, cron auth, slate math, share-text builder, country→flag, cn() class helper
   types/                  hand-written DB types mirroring the schema
 supabase/migrations/      001_initial_schema.sql, 002_phase2_props.sql  (source of truth for the schema)
 docs/                     ARCHITECTURE, DATA_MODEL, GAME_DESIGN, BUILD_PLAN, DESIGN_SYSTEM

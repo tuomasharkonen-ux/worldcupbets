@@ -65,6 +65,8 @@ The humans (up to `config.max_managers`).
 | `coins` | int | cached, default 100 |
 | `joined_at` | timestamptz | |
 | `pin_hash` | text | per-player PIN, scrypt `salt:hash` (migration `006`); nullable for pre-PIN players, back-filled on next login |
+| `failed_pin_attempts` | int | consecutive wrong-PIN count (migration `007`), default 0; reset on successful login |
+| `pin_locked_until` | timestamptz | brute-force lockout (migration `007`); when set and in the future, login for this name is frozen |
 | `state` | jsonb | per-manager scratch state (migration `005`): streak counter, last-closed-slate guard |
 
 ### `teams`

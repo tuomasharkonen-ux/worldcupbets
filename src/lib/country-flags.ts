@@ -69,6 +69,21 @@ const FIFA_TLA: Record<string, string> = {
   IRI: 'ir', PHI: 'ph', TPE: 'tw', VIE: 'vn', INA: 'id', INE: 'id',
 };
 
+// A Unicode flag emoji for a team (for plain-text contexts like share messages),
+// or null when one won't render reliably. Builds the regional-indicator pair from
+// the resolved alpha-2 code; the UK home nations resolve to gb-eng/sct/wls, whose
+// emoji subdivision flags render inconsistently across platforms, so we return null
+// and let callers fall back to the country code.
+export function toFlagEmoji(name: string | null | undefined, countryCode?: string | null): string | null {
+  const code = toFlagCode(name, countryCode);
+  if (!code || !/^[a-z]{2}$/.test(code)) return null;
+  const BASE = 0x1f1e6; // regional indicator 'A'
+  return String.fromCodePoint(
+    BASE + (code.charCodeAt(0) - 97),
+    BASE + (code.charCodeAt(1) - 97),
+  );
+}
+
 export function toFlagCode(name: string | null | undefined, countryCode?: string | null): string | null {
   if (name) {
     const n = normalize(name);

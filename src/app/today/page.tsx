@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/button';
 import { Flag } from '@/components/ui/flag';
 import { currentSlateKey, slateKeyOf, slateLabel } from '@/lib/slate';
 import { matchDayNumber } from '@/lib/matchday';
+import { buildSlateShareText, isShareProp } from '@/lib/share';
 import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding } from './Recap';
+import { ShareBetsButton } from './ShareBetsButton';
 import type {
   Bet,
   ExactScoreSelection,
@@ -198,7 +200,6 @@ export default async function TodayPage() {
 
   // ─── betting (1) & all-set (2) ───────────────────────────────────────────────
   const firstKickoff = members[0].kickoff_at;
-  const missingCount = members.filter(m => !hasCompleteCore(m.id)).length;
 
   // Game-day number for the slate, numbered over the whole (non-void) schedule so it
   // matches the full fixtures list and the recap.
@@ -207,6 +208,10 @@ export default async function TodayPage() {
     .select('kickoff_at')
     .neq('status', 'void');
   const matchDay = matchDayNumber((allKickoffs ?? []).map(r => r.kickoff_at as string), firstKickoff);
+
+  // Shareable, Wordle-style digest of this manager's picks — only meaningful once
+  // every slip is in (the all-set state), so build it lazily there.
+  const shareText = state === 'allset' ? await buildShareText(matchDay, members, betsByMatch) : null;
 
   // Inner row content, shared between the clickable (all-set) and plain (betting) layouts.
   // `editable` shows the pencil affordance only where a row actually links somewhere.
@@ -284,16 +289,17 @@ export default async function TodayPage() {
             </p>
           </div>
           <Countdown target={firstKickoff} />
+          {shareText && <ShareBetsButton text={shareText} />}
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3 py-3 text-center">
           <Ticket className="size-12 text-primary-bright" aria-hidden />
           <div>
             <p className="font-display text-2xl font-bold text-foreground">
-              Place your bets for Game Day {matchDay}
+              Place your bets
             </p>
             <p className="mt-1.5 text-base text-muted">
-              {missingCount} of {members.length} {missingCount === 1 ? 'match' : 'matches'} still need a pick.
+              Match Day {matchDay}
             </p>
           </div>
           <Countdown target={firstKickoff} />
@@ -329,6 +335,27 @@ export default async function TodayPage() {
       )}
     </Shell>
   );
+}
+
+// ─── share text builder ─────────────────────────────────────────────────────────
+
+// Fetches the prop player names, then delegates to the pure builder shared with the
+// /admin preview (see lib/share.ts).
+async function buildShareText(
+  matchDay: number,
+  members: MatchRow[],
+  betsByMatch: Map<string, Bet[]>,
+): Promise<string> {
+  const propIds = members
+    .flatMap(m => betsByMatch.get(m.id) ?? [])
+    .filter(b => isShareProp(b.bet_type))
+    .map(b => (b.selection as FootballerSelection).footballer_id);
+  const playerName = new Map<string, string>();
+  if (propIds.length > 0) {
+    const { data: players } = await db.from('footballers').select('id, name').in('id', propIds);
+    for (const p of players ?? []) playerName.set(p.id as string, p.name as string);
+  }
+  return buildSlateShareText(matchDay, members, betsByMatch, playerName);
 }
 
 // ─── recap data builder ─────────────────────────────────────────────────────────

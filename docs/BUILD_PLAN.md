@@ -135,8 +135,16 @@ post-kickoff without blocking launch — upgrades are the spine.
    slate coin rubric, `managers.state`, `ledger.ref_id`→text); slate + day-close pure
    and covered by 17 new unit tests (48 total green). *Pending: apply `005` to Supabase.*
    The **"you're all set"** state shows your submitted slip (still editable until each
-   match's kickoff). *(The full reveal choreography was built here rather than waiting
-   for slice 6 — see below.)*
+   match's kickoff) and a **Share my bets** button that copies a Wordle-style, emoji-flag
+   digest of the slate (one match per row — `🇧🇷 BRA 2–1 CRO 🇭🇷` with inline `⚡×N` on
+   staked slips, props indented beneath) for pasting into WhatsApp etc. The **recap** ends
+   with **Share my results** — a spoiler-free `🟩/⬛/⬜` grid (outcome · score · prop per
+   match, both flags, no picks revealed) plus the night's points and leaderboard move —
+   and a **Next match day** link back to `/today`. Share text is built by pure
+   `lib/share.ts` (slate) / inside `Recap.tsx` (results) so the `/admin` preview and the
+   live screens stay identical; flag emoji come from `lib/country-flags.ts → toFlagEmoji`
+   (UK home nations fall back to the 3-letter code). *(The full reveal choreography was
+   built here rather than waiting for slice 6 — see below.)*
 4. **Shop — upgrades** — seed `shop_items`; purchase flow → `manager_items` +
    `purchase` ledger entry; settlement/submission read active upgrades (Coin Magnet
    income mult, Bigger Wallet stake cap, Extra Prop Slot count, Vault/Hot Hand/

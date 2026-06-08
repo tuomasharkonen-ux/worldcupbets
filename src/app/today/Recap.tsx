@@ -1,8 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Coins, Sparkles, Trophy, ChevronRight, FastForward, ArrowUp, ArrowDown, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
+import Link from 'next/link';
+import { Coins, Sparkles, Trophy, ChevronRight, ArrowRight, FastForward, ArrowUp, ArrowDown, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
 import { Flag } from '@/components/ui/flag';
+import { Button } from '@/components/ui/button';
+import { toFlagEmoji } from '@/lib/country-flags';
+import { ShareBetsButton } from './ShareBetsButton';
 
 // ─── data shapes (computed server-side over the slate's bets + ledger) ──────────
 
@@ -121,6 +125,47 @@ const RESULT_STYLE = {
   lost: { color: 'text-danger', Icon: XCircle, tag: 'MISS' },
   void: { color: 'text-subtle', Icon: MinusCircle, tag: 'VOID' },
 } as const;
+
+// ─── share text ─────────────────────────────────────────────────────────────────
+
+// A spoiler-free, Wordle-style results grid for pasting into a chat. Each match is
+// one row — both flags around a 3-cell pattern for outcome · exact score · prop
+// (🟩 hit · ⬛ miss · ⬜ no bet) — with the night's points and the manager's new
+// leaderboard position below. Deliberately omits the picks themselves.
+function buildRecapShareText(data: RecapData): string {
+  const cell = (pick: RecapPick | undefined): string =>
+    !pick ? '⬜' : pick.result === 'won' ? '🟩' : pick.result === 'void' ? '⬜' : '⬛';
+  // Flag emoji, or the country code when one won't render (UK home nations).
+  const side = (name: string, code: string | null): string =>
+    toFlagEmoji(name, code) ?? code?.toUpperCase() ?? name;
+
+  const lines: string[] = [`⚽ Match Day ${data.matchDay}`, ''];
+  for (const m of data.matches) {
+    const outcome = m.picks.find(p => p.label === 'Outcome');
+    const score = m.picks.find(p => p.label === 'Score');
+    const prop = m.picks.find(p => p.label !== 'Outcome' && p.label !== 'Score');
+    const grid = `${cell(outcome)}${cell(score)}${cell(prop)}`;
+    lines.push(`${side(m.home, m.homeCode)} ${grid} ${side(m.away, m.awayCode)}`);
+  }
+
+  lines.push('', `✨ +${data.pointsGained} pts`);
+  const me = data.standings.find(s => s.isYou);
+  if (me) {
+    const delta = me.rankBefore - me.rankAfter; // +ve = climbed
+    const move = delta > 0 ? ` ▲${delta}` : delta < 0 ? ` ▼${-delta}` : '';
+    lines.push(`🏆 ${ordinal(me.rankAfter)}${move}`);
+  }
+
+  lines.push('', '🔗 worldcupbets.vercel.app');
+  return lines.join('\n');
+}
+
+function ordinal(n: number): string {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return `${n}th`;
+  const suffix = { 1: 'st', 2: 'nd', 3: 'rd' }[n % 10] ?? 'th';
+  return `${n}${suffix}`;
+}
 
 // ─── the recap ────────────────────────────────────────────────────────────────
 
@@ -330,10 +375,21 @@ export function Recap({ data }: { data: RecapData }) {
         )}
       </div>
 
-      {step < lastScene && (
+      {step < lastScene ? (
         <p className="mt-4 flex items-center justify-center gap-1 text-xs text-subtle">
           Tap to continue <ChevronRight className="size-3.5" aria-hidden />
         </p>
+      ) : (
+        // Wrapped so taps on the buttons don't bubble to the recap's advance handler.
+        <div className="mt-5 space-y-2.5" onClick={e => e.stopPropagation()}>
+          <ShareBetsButton text={buildRecapShareText(data)} label="Share my results" />
+          <Button asChild variant="ghost" size="lg" className="w-full">
+            <Link href="/today">
+              Next match day
+              <ArrowRight className="size-5" aria-hidden />
+            </Link>
+          </Button>
+        </div>
       )}
     </div>
   );
