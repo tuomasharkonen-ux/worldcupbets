@@ -22,8 +22,16 @@ export function BottomTabs() {
   return (
     <nav
       aria-label="Primary"
-      className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pt-2 pb-[max(0.6rem,env(safe-area-inset-bottom))] sm:hidden"
+      className="fixed inset-x-0 bottom-0 z-50 flex justify-center px-4 pt-6 pb-[max(0.6rem,env(safe-area-inset-bottom))] sm:hidden"
     >
+      {/* Gradient scrim: content stays sharp above the bar, then fades out so it's
+          fully background by the bar's bottom edge — no clutter under the glass.
+          Stops are tuned to the nav box (pt-6 → bar → pb): solid by ~18% (bar's
+          bottom edge), transparent by ~70% (just above the bar's top edge). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-t from-[var(--color-background)] from-[18%] via-[color-mix(in_oklab,var(--color-background)_55%,transparent)] via-[45%] to-transparent to-[70%]"
+      />
       <div className="glass-strong flex w-full max-w-sm items-stretch justify-around gap-1 rounded-2xl p-1.5">
         {TABS.map(({ href, label, Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
