@@ -10,12 +10,19 @@ import {
   Check,
   Sparkles,
   TrendingUp,
+  ChevronDown,
 } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Flag } from '@/components/ui/flag';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import type { LadderBreakdown } from '@/settlement/favorites';
 import { completeOnboarding } from './actions';
 
@@ -45,9 +52,15 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
   const [teamId, setTeamId] = useState<string | null>(null);
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [query, setQuery] = useState('');
+  const [teamModalOpen, setTeamModalOpen] = useState(false);
+  const [teamQuery, setTeamQuery] = useState('');
   const [isPending, startTransition] = useTransition();
 
   const team = useMemo(() => teams.find(t => t.id === teamId) ?? null, [teams, teamId]);
+  const filteredTeams = useMemo(() => {
+    const q = teamQuery.trim().toLowerCase();
+    return q ? teams.filter(t => t.name.toLowerCase().includes(q)) : teams;
+  }, [teams, teamQuery]);
   const squad = useMemo(
     () => players.filter(p => p.teamId === teamId),
     [players, teamId],
@@ -57,6 +70,16 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
     return q ? squad.filter(p => p.name.toLowerCase().includes(q)) : squad;
   }, [squad, query]);
   const player = useMemo(() => squad.find(p => p.id === playerId) ?? null, [squad, playerId]);
+
+  function openTeamModal() {
+    setTeamQuery('');
+    setTeamModalOpen(true);
+  }
+
+  function selectTeam(id: string) {
+    setTeamId(id);
+    setTeamModalOpen(false);
+  }
 
   function submit() {
     if (!teamId || !playerId) return;
@@ -72,7 +95,7 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
           <Sparkles className="size-7" aria-hidden />
         </span>
         <h1 className="text-glow font-display text-3xl font-bold tracking-tight text-foreground">
-          {step === 'team' ? 'Back your champion' : 'Pick your favorite player'}
+          {step === 'team' ? 'Pick your champion' : 'Pick your favorite player'}
         </h1>
         <p className="text-sm text-muted">
           {step === 'team'
@@ -85,36 +108,29 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
 
       {step === 'team' ? (
         <>
-          <div className="max-h-[24rem] overflow-y-auto pr-1 sm:max-h-[28rem]">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {teams.map(t => {
-                const selected = t.id === teamId;
-                const mult = t.breakdown?.multiplier ?? 1;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => setTeamId(t.id)}
-                    aria-pressed={selected}
-                    className={`glass flex items-center gap-2 rounded-xl px-3 py-2 text-left transition-[transform,border-color] duration-150 hover:-translate-y-0.5 ${
-                      selected
-                        ? 'border-points ring-2 ring-points shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-points)_22%,transparent)]'
-                        : 'hover:border-border-strong'
-                    }`}
-                  >
-                    <Flag name={t.name} countryCode={t.countryCode} size="sm" />
-                    <span className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-foreground">
-                      {t.name}
-                    </span>
-                    {mult > 1 && (
-                      <Badge variant="points" size="sm" className="shrink-0">×{mult}</Badge>
-                    )}
-                    {selected && <Check className="size-4 shrink-0 text-points" aria-hidden />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <button
+            type="button"
+            onClick={openTeamModal}
+            aria-haspopup="dialog"
+            className={`glass flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left transition-[border-color] hover:border-border-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)] ${
+              team ? 'border-points ring-2 ring-points' : ''
+            }`}
+          >
+            {team ? (
+              <>
+                <Flag name={team.name} countryCode={team.countryCode} size="md" />
+                <span className="min-w-0 flex-1 truncate font-display font-semibold text-foreground">
+                  {team.name}
+                </span>
+                {team.breakdown && team.breakdown.multiplier > 1 && (
+                  <Badge variant="points" size="sm" className="shrink-0">×{team.breakdown.multiplier}</Badge>
+                )}
+              </>
+            ) : (
+              <span className="flex-1 font-display text-muted">Select a team…</span>
+            )}
+            <ChevronDown className="size-5 shrink-0 text-subtle" aria-hidden />
+          </button>
 
           {team?.breakdown && (
             <LadderCard team={team} />
@@ -131,6 +147,57 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
             Choose your player
             <ArrowRight className="size-5" aria-hidden />
           </Button>
+
+          <Dialog open={teamModalOpen} onOpenChange={setTeamModalOpen}>
+            <DialogContent className="gap-0" showClose>
+              <DialogTitle>Pick your champion</DialogTitle>
+              <DialogDescription className="mt-1">
+                Pick the team you think lifts the trophy. Underdogs pay a bigger multiplier.
+              </DialogDescription>
+
+              <div className="relative mt-4">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" aria-hidden />
+                <Input
+                  autoFocus
+                  value={teamQuery}
+                  onChange={e => setTeamQuery(e.target.value)}
+                  placeholder="Search teams…"
+                  className="pl-9"
+                  aria-label="Search teams"
+                />
+              </div>
+
+              <div className="-mr-2 mt-3 flex-1 space-y-1 overflow-y-auto pr-2">
+                {filteredTeams.map(t => {
+                  const selected = t.id === teamId;
+                  const mult = t.breakdown?.multiplier ?? 1;
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => selectTeam(t.id)}
+                      aria-pressed={selected}
+                      className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)] ${
+                        selected ? 'bg-surface-2' : ''
+                      }`}
+                    >
+                      <Flag name={t.name} countryCode={t.countryCode} size="sm" />
+                      <span className="min-w-0 flex-1 truncate font-display text-sm font-semibold text-foreground">
+                        {t.name}
+                      </span>
+                      {mult > 1 && (
+                        <Badge variant="points" size="sm" className="shrink-0">×{mult}</Badge>
+                      )}
+                      {selected && <Check className="size-4 shrink-0 text-points" aria-hidden />}
+                    </button>
+                  );
+                })}
+                {filteredTeams.length === 0 && (
+                  <p className="py-8 text-center text-sm text-subtle">No teams match “{teamQuery}”.</p>
+                )}
+              </div>
+            </DialogContent>
+          </Dialog>
         </>
       ) : (
         <>
@@ -198,6 +265,11 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
               <p className="font-display text-foreground">
                 <span className="font-bold">{player.name}</span> is your favorite player, and{' '}
                 <span className="font-bold">{team!.name}</span> is your pick to win it all.
+              </p>
+              <p className="text-xs text-muted">
+                {player.name.split(' ').slice(-1)[0]} earns you points for every goal they score all
+                tournament long — with a small penalty if they pick up a booking. The more they
+                perform, the more you bank.
               </p>
               <p className="text-xs text-subtle">Both are locked for the whole tournament.</p>
             </Card>
