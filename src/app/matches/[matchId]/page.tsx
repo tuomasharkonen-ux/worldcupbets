@@ -42,10 +42,15 @@ const STATUS_STYLE = {
 
 export default async function MatchPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ matchId: string }>;
+  searchParams: Promise<{ edit?: string }>;
 }) {
   const { matchId } = await params;
+  // `?edit=1` — opened from the "all set" Today screen to tweak a single slip.
+  // Saving returns to Today instead of stepping through the rest of the slate.
+  const editing = (await searchParams).edit === '1';
 
   const session = await getSession();
   if (!session.managerId) redirect('/join');
@@ -102,7 +107,7 @@ export default async function MatchPage({
   const now = new Date();
   const todayKey = currentSlateKey(now, rollover);
   let slate: { index: number; total: number; nextHref: string | null } | undefined;
-  if (slateKeyOf(match.kickoff_at, rollover) === todayKey) {
+  if (!editing && slateKeyOf(match.kickoff_at, rollover) === todayKey) {
     const dayMs = 24 * 60 * 60 * 1000;
     const slateMidnightUtc = new Date(`${todayKey}T00:00:00Z`).getTime();
     const { data: windowMatches } = await db
@@ -171,11 +176,11 @@ export default async function MatchPage({
       <Nav />
       <main className="mx-auto max-w-lg space-y-6 px-4 py-8">
         <Link
-          href="/fixtures"
+          href={editing ? '/today' : '/fixtures'}
           className="inline-flex items-center gap-1.5 text-sm font-medium text-muted transition-colors hover:text-foreground"
         >
           <ArrowLeft className="size-4" aria-hidden />
-          Fixtures
+          {editing ? 'Today' : 'Fixtures'}
         </Link>
 
         {/* Scoreboard — plain info, not a card */}
@@ -267,6 +272,7 @@ export default async function MatchPage({
               stake={stakeConfig}
               scoring={scoring}
               slate={slate}
+              returnTo={editing ? '/today' : undefined}
               existing={existingForSlip}
             />
           </div>

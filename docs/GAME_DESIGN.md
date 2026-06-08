@@ -42,7 +42,11 @@ consecutive day-boundaries. The boundary is a configurable Helsinki hour
 game finishes (~06:00) and before the next slate's first kickoff. A game kicking
 off at 04:00 Helsinki belongs to the **previous evening's slate**. Slate membership
 is **computed** from `kickoff_at`, not stored. Rest days (no matches) simply skip a
-beat: no slate, no recap; the shop stays open on the existing balance.
+beat: no slate, no recap; the shop stays open on the existing balance. On a rest day
+the **Today** view doesn't dead-end — it looks ahead to the next slate that *has*
+fixtures and opens betting on it right away (framed as "Next up"), so the next games
+are always one tap from a slip. Only when no future fixtures are known at all does it
+show an empty "No matches yet" state.
 
 ### The match loop inside a slate
 

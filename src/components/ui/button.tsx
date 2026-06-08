@@ -25,11 +25,11 @@ const button = cva(
         primary:
           'bg-primary text-on-primary hover:bg-primary-hover shadow-[0_5px_0_0_var(--color-primary-press)] active:shadow-[0_2px_0_0_var(--color-primary-press)]',
         points:
-          'bg-points text-[#0d0b1a] hover:brightness-105 shadow-[0_5px_0_0_var(--color-points-press)] active:shadow-[0_2px_0_0_var(--color-points-press)]',
+          'bg-points text-[#0a1e12] hover:brightness-105 shadow-[0_5px_0_0_var(--color-points-press)] active:shadow-[0_2px_0_0_var(--color-points-press)]',
         success:
-          'bg-success text-[#0d0b1a] hover:brightness-105 shadow-[0_5px_0_0_var(--color-success-press)] active:shadow-[0_2px_0_0_var(--color-success-press)]',
+          'bg-success text-[#0a1e12] hover:brightness-105 shadow-[0_5px_0_0_var(--color-success-press)] active:shadow-[0_2px_0_0_var(--color-success-press)]',
         accent:
-          'bg-accent text-[#0d0b1a] hover:brightness-105 shadow-[0_5px_0_0_var(--color-accent-press)] active:shadow-[0_2px_0_0_var(--color-accent-press)]',
+          'bg-accent text-[#0a1e12] hover:brightness-105 shadow-[0_5px_0_0_var(--color-accent-press)] active:shadow-[0_2px_0_0_var(--color-accent-press)]',
         glass:
           'glass text-foreground hover:bg-[color-mix(in_oklab,var(--color-surface)_85%,transparent)] active:translate-y-[1px]',
         ghost:

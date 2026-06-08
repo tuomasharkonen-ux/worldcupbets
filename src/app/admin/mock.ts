@@ -103,7 +103,7 @@ function match(
 // + `betsByMatch`. We hand the preview the same inputs plus a fixed `now`, so the
 // rendering is faithful without any time-of-day flakiness.
 
-export type TodayVariant = 'betting' | 'allset' | 'settling' | 'recap' | 'restday';
+export type TodayVariant = 'betting' | 'allset' | 'settling' | 'recap' | 'upcoming' | 'noschedule';
 
 export interface TodayScenario {
   state: 'betting' | 'allset' | 'settling';
@@ -112,6 +112,11 @@ export interface TodayScenario {
   members: MatchRow[];
   betsByMatch: Map<string, Bet[]>;
   settledCount: number;
+  // Game-day number for the slate, shown in the betting heading.
+  matchDay: number;
+  // True when the current slate is a rest day and we've jumped ahead to the next
+  // slate with fixtures — drives the "Next up" framing.
+  isUpcoming?: boolean;
 }
 
 const SLATE_KEY = '2026-06-15';
@@ -125,9 +130,28 @@ function slateMatches(): MatchRow[] {
   ];
 }
 
-// `recap` and `restday` are handled directly in the preview (recap renders the
-// real <Recap> on MOCK_RECAP; restday is the empty state), so they never reach here.
-export function todayScenario(variant: Exclude<TodayVariant, 'restday' | 'recap'>): TodayScenario {
+// `recap` and `noschedule` are handled directly in the preview (recap renders the
+// real <Recap> on MOCK_RECAP; noschedule is the empty state), so they never reach here.
+export function todayScenario(variant: Exclude<TodayVariant, 'noschedule' | 'recap'>): TodayScenario {
+  // `upcoming` — current slate is a rest day, so we've jumped to the next slate that
+  // has fixtures. Fresh slip (every match needs a pick), kickoffs a couple of days out.
+  if (variant === 'upcoming') {
+    const members = [
+      match('u-1', TEAMS.brazil, TEAMS.croatia, '2026-06-19T16:00:00Z', { group_label: 'C' }),
+      match('u-2', TEAMS.spain, TEAMS.japan, '2026-06-19T19:00:00Z', { group_label: 'E' }),
+    ];
+    return {
+      state: 'betting',
+      slateKey: '2026-06-19',
+      now: new Date('2026-06-17T12:00:00Z'),
+      members,
+      betsByMatch: new Map<string, Bet[]>(),
+      settledCount: 0,
+      matchDay: 6,
+      isUpcoming: true,
+    };
+  }
+
   const members = slateMatches();
   const betsByMatch = new Map<string, Bet[]>();
 
@@ -139,7 +163,7 @@ export function todayScenario(variant: Exclude<TodayVariant, 'restday' | 'recap'
       bet({ match_id: 'm-1', bet_type: 'outcome', selection: { result: 'home' }, stake_coins: 25, stake_mult: 1.5 }),
       bet({ match_id: 'm-1', bet_type: 'exact_score', selection: { home: 2, away: 0 }, stake_coins: 0, stake_mult: 1.5 }),
     ]);
-    return { state: 'betting', slateKey: SLATE_KEY, now: new Date('2026-06-15T12:00:00Z'), members, betsByMatch, settledCount: 0 };
+    return { state: 'betting', slateKey: SLATE_KEY, now: new Date('2026-06-15T12:00:00Z'), members, betsByMatch, settledCount: 0, matchDay: 2 };
   }
 
   if (variant === 'allset') {
@@ -152,7 +176,7 @@ export function todayScenario(variant: Exclude<TodayVariant, 'restday' | 'recap'
           : []),
       ]);
     }
-    return { state: 'allset', slateKey: SLATE_KEY, now: new Date('2026-06-15T12:00:00Z'), members, betsByMatch, settledCount: 0 };
+    return { state: 'allset', slateKey: SLATE_KEY, now: new Date('2026-06-15T12:00:00Z'), members, betsByMatch, settledCount: 0, matchDay: 2 };
   }
 
   // settling — first two finished + settled, last still live/pending.
@@ -174,13 +198,14 @@ export function todayScenario(variant: Exclude<TodayVariant, 'restday' | 'recap'
     members: settling,
     betsByMatch,
     settledCount: 2,
+    matchDay: 2,
   };
 }
 
 // ─── Morning recap ─────────────────────────────────────────────────────────────
 
 export const MOCK_RECAP: RecapData = {
-  slateLabel: 'Mon 15 Jun',
+  matchDay: 5,
   matches: [
     {
       id: 'm-1',
@@ -193,9 +218,9 @@ export const MOCK_RECAP: RecapData = {
       staked: 25,
       stakeMult: 1.5,
       picks: [
-        { label: 'Outcome', detail: 'Brazil', result: 'won' },
-        { label: 'Score', detail: '2–0', result: 'won' },
-        { label: 'First scorer', detail: 'Vinícius Jr.', result: 'lost' },
+        { label: 'Outcome', detail: 'Brazil', result: 'won', points: 18 },
+        { label: 'Score', detail: '2–0', result: 'won', points: 45 },
+        { label: 'First scorer', detail: 'Vinícius Jr.', result: 'lost', points: 0 },
       ],
     },
     {
@@ -209,9 +234,9 @@ export const MOCK_RECAP: RecapData = {
       staked: 25,
       stakeMult: 1.5,
       picks: [
-        { label: 'Outcome', detail: 'France', result: 'lost' },
-        { label: 'Score', detail: '2–1', result: 'lost' },
-        { label: 'First scorer', detail: 'K. Mbappé', result: 'lost' },
+        { label: 'Outcome', detail: 'France', result: 'lost', points: 0 },
+        { label: 'Score', detail: '2–1', result: 'lost', points: 0 },
+        { label: 'First scorer', detail: 'K. Mbappé', result: 'lost', points: 0 },
       ],
     },
     {
@@ -225,8 +250,8 @@ export const MOCK_RECAP: RecapData = {
       staked: 10,
       stakeMult: 1.25,
       picks: [
-        { label: 'Outcome', detail: 'Spain', result: 'won' },
-        { label: 'Anytime scorer', detail: 'A. Morata', result: 'won' },
+        { label: 'Outcome', detail: 'Spain', result: 'won', points: 13 },
+        { label: 'Anytime scorer', detail: 'A. Morata', result: 'won', points: 10 },
       ],
     },
   ],
@@ -284,14 +309,26 @@ export const MOCK_SQUADS: SlipSquads = {
 // ─── Full schedule (fixtures) ──────────────────────────────────────────────────
 
 export interface FixturesData {
-  upcoming: MatchRow[];
-  results: MatchRow[];
+  // Whole-schedule, kickoff-ascending — the page groups it into NA match days.
+  matches: MatchRow[];
   betsPerMatch: Map<string, Set<string>>;
   now: Date;
+  rollover: number;
 }
 
 export function fixturesData(): FixturesData {
-  const upcoming = [
+  // Mixed past + future so the preview shows numbered match days, finished rows,
+  // and the today-only clickable slate (06-15, given now below) all at once.
+  const matches = [
+    match('r-3', TEAMS.england, TEAMS.usa, '2026-06-13T19:00:00Z', {
+      group_label: 'F', status: 'finished', home_score: 0, away_score: 0, settled_at: '2026-06-14T07:00:00Z',
+    }),
+    match('r-2', TEAMS.argentina, TEAMS.morocco, '2026-06-14T16:00:00Z', {
+      group_label: 'B', status: 'finished', home_score: 3, away_score: 1, settled_at: '2026-06-15T07:00:00Z',
+    }),
+    match('r-1', TEAMS.germany, TEAMS.japan, '2026-06-14T19:00:00Z', {
+      group_label: 'E', status: 'finished', home_score: 1, away_score: 2, settled_at: '2026-06-15T07:00:00Z',
+    }),
     match('f-1', TEAMS.brazil, TEAMS.croatia, '2026-06-15T16:00:00Z', { group_label: 'C' }),
     match('f-2', TEAMS.france, TEAMS.netherlands, '2026-06-15T19:00:00Z', { group_label: 'D' }),
     match('f-3', TEAMS.spain, TEAMS.japan, '2026-06-16T16:00:00Z', { group_label: 'E' }),
@@ -299,23 +336,12 @@ export function fixturesData(): FixturesData {
     match('f-5', TEAMS.portugal, TEAMS.morocco, '2026-06-17T19:00:00Z', { group_label: 'G' }),
     match('f-6', TEAMS.argentina, TEAMS.germany, '2026-06-18T19:00:00Z', { stage: 'r16', group_label: null }),
   ];
-  const results = [
-    match('r-1', TEAMS.germany, TEAMS.japan, '2026-06-14T19:00:00Z', {
-      group_label: 'E', status: 'finished', home_score: 1, away_score: 2, settled_at: '2026-06-15T07:00:00Z',
-    }),
-    match('r-2', TEAMS.argentina, TEAMS.morocco, '2026-06-14T16:00:00Z', {
-      group_label: 'B', status: 'finished', home_score: 3, away_score: 1, settled_at: '2026-06-15T07:00:00Z',
-    }),
-    match('r-3', TEAMS.england, TEAMS.usa, '2026-06-13T19:00:00Z', {
-      group_label: 'F', status: 'finished', home_score: 0, away_score: 0, settled_at: '2026-06-14T07:00:00Z',
-    }),
-  ];
   const betsPerMatch = new Map<string, Set<string>>([
     ['f-1', new Set(['outcome', 'exact_score', 'first_scorer'])],
     ['f-2', new Set(['outcome', 'exact_score'])],
     ['r-1', new Set(['outcome', 'exact_score'])],
   ]);
-  return { upcoming, results, betsPerMatch, now: new Date('2026-06-15T12:00:00Z') };
+  return { matches, betsPerMatch, now: new Date('2026-06-15T12:00:00Z'), rollover: 9 };
 }
 
 // ─── Leaderboard ───────────────────────────────────────────────────────────────
