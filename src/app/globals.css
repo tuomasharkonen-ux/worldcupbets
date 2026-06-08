@@ -3,41 +3,42 @@
 /* =============================================================================
    World Cup Bets — design tokens
    Bold & playful: chunky 3D controls, glassmorphic surfaces, large radii.
-   Dark theme on an indigo-navy canvas so glass and glows read with depth.
+   World Cup pitch theme: a dark grass-green canvas so glass and gold glows
+   read with depth. Trophy gold drives the primary actions.
    Colours are tuned for WCAG AA (see contrast notes beside each text token).
    ========================================================================== */
 @theme {
-  /* --- Surfaces (dark, indigo-tinted) --- */
-  --color-background: #0d0b1a;     /* app canvas */
-  --color-surface: #17142a;        /* solid cards / nav */
-  --color-surface-2: #221d3d;      /* raised: inputs, hovered rows */
-  --color-surface-3: #2d2750;      /* pressed / active wells */
+  /* --- Surfaces (dark grass-green) --- */
+  --color-background: #0a1e12;     /* app canvas — dark pitch green */
+  --color-surface: #173524;        /* solid cards / nav — lifted off the canvas so cards pop */
+  --color-surface-2: #1a3a26;      /* raised: inputs, hovered rows */
+  --color-surface-3: #224a30;      /* pressed / active wells */
 
   /* --- Borders (translucent so they sit on any surface) --- */
   --color-border: rgba(255, 255, 255, 0.10);
   --color-border-strong: rgba(255, 255, 255, 0.20);
 
   /* --- Text (contrast ratios vs --background) --- */
-  --color-foreground: #f4f2ff;     /* ~17:1  primary text */
-  --color-muted: #c0bbd9;          /* ~9:1   secondary text, labels */
-  --color-subtle: #9a95b8;         /* ~5:1   hints, timestamps (still AA) */
+  --color-foreground: #eef6f0;     /* ~16:1  primary text */
+  --color-muted: #b7d2bf;          /* ~11:1  secondary text, labels */
+  --color-subtle: #8aae96;         /* ~7:1   hints, timestamps (still AA) */
 
-  /* --- Primary: violet-indigo. White text on --primary is ~5.6:1 (AA). --- */
-  --color-primary: #4f46e5;        /* solid actions */
-  --color-primary-hover: #5851ea;
-  --color-primary-press: #3a32b5;  /* darker base for the 3D "lip" */
-  --color-primary-bright: #9b8cff; /* glows, focus ring, top highlight */
-  --color-on-primary: #ffffff;
+  /* --- Primary: trophy gold. Dark-green text on --primary is ~8.6:1 (AA). --- */
+  --color-primary: #f0a830;        /* solid actions */
+  --color-primary-hover: #f7b542;
+  --color-primary-press: #b87d18;  /* darker base for the 3D "lip" */
+  --color-primary-bright: #ffd166; /* glows, focus ring, top highlight (~12:1 as text) */
+  --color-on-primary: #0a1e12;     /* dark pitch green for max contrast on gold */
 
-  /* --- Secondary accent: playful pink (decorative / glows, not text-bg) --- */
-  --color-accent: #f472b6;
-  --color-accent-press: #be3f86;
+  /* --- Secondary accent: warm orange (decorative / glows; ~7.6:1 as text) --- */
+  --color-accent: #f8923c;
+  --color-accent-press: #c46a1f;
 
   /* --- Semantic --- */
-  --color-points: #fbbf24;         /* Points — gold */
-  --color-points-press: #b8860b;
-  --color-success: #34d399;        /* ~9:1 as text on dark */
-  --color-success-press: #0e9d6b;  /* darker base for the 3D "lip" */
+  --color-points: #fde047;         /* Points — bright coin yellow (~13:1), distinct from gold CTAs */
+  --color-points-press: #ca9a04;
+  --color-success: #4ade80;        /* ~10:1 as text on dark */
+  --color-success-press: #15803d;  /* darker base for the 3D "lip" */
   --color-danger: #fb7185;         /* ~6:1 as text on dark */
 
   /* --- Radii: large & bubbly --- */
@@ -64,13 +65,6 @@
     background: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans);
-    /* Soft colour blobs behind everything so glass surfaces have something to
-       refract. Fixed + low-opacity so they read as ambient depth, not noise. */
-    background-image:
-      radial-gradient(60rem 60rem at 12% -10%, rgba(124, 92, 255, 0.18), transparent 60%),
-      radial-gradient(50rem 50rem at 100% 0%, rgba(244, 114, 182, 0.12), transparent 55%),
-      radial-gradient(45rem 45rem at 50% 120%, rgba(79, 70, 229, 0.16), transparent 60%);
-    background-attachment: fixed;
   }
 
   /* One consistent, visible focus ring everywhere (accessibility) */
@@ -84,6 +78,67 @@
     background: var(--color-primary);
     color: var(--color-on-primary);
   }
+}
+
+/* =============================================================================
+   Ambient backdrop — slow-pulsing colour blobs behind everything.
+   Fixed, low-opacity and heavily blurred so they read as living depth, not
+   noise. Each blob drifts/breathes on its own slow, offset cycle so the field
+   never visibly loops. Tuned to the pitch: floodlit gold up top, emerald turf
+   glow below. Neutralised by the prefers-reduced-motion guard further down,
+   where they settle into a calm static gradient.
+   ========================================================================== */
+.app-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -10;
+  overflow: hidden;
+  pointer-events: none;
+}
+.app-backdrop span {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(40px);
+  will-change: transform, opacity;
+}
+.app-backdrop .blob-gold {
+  top: -22%;
+  left: -8%;
+  width: 60rem;
+  height: 60rem;
+  background: radial-gradient(circle, rgba(240, 168, 48, 0.20), transparent 60%);
+  animation: blob-drift-a 19s ease-in-out infinite alternate;
+}
+.app-backdrop .blob-emerald {
+  top: -16%;
+  right: -14%;
+  width: 50rem;
+  height: 50rem;
+  background: radial-gradient(circle, rgba(74, 222, 128, 0.16), transparent 60%);
+  animation: blob-drift-b 23s ease-in-out infinite alternate;
+  animation-delay: -7s;
+}
+.app-backdrop .blob-turf {
+  bottom: -28%;
+  left: 30%;
+  width: 55rem;
+  height: 55rem;
+  background: radial-gradient(circle, rgba(34, 197, 94, 0.22), transparent 60%);
+  animation: blob-drift-c 27s ease-in-out infinite alternate;
+  animation-delay: -13s;
+}
+
+@keyframes blob-drift-a {
+  from { opacity: 0.55; transform: translate3d(0, 0, 0) scale(1); }
+  to   { opacity: 1;    transform: translate3d(4%, 5%, 0) scale(1.12); }
+}
+@keyframes blob-drift-b {
+  from { opacity: 0.5;  transform: translate3d(0, 0, 0) scale(1.08); }
+  to   { opacity: 0.9;  transform: translate3d(-5%, 4%, 0) scale(1); }
+}
+@keyframes blob-drift-c {
+  from { opacity: 0.6;  transform: translate3d(0, 0, 0) scale(1); }
+  to   { opacity: 1;    transform: translate3d(3%, -4%, 0) scale(1.15); }
 }
 
 /* =============================================================================

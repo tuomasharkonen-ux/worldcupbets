@@ -34,7 +34,15 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       lang="en"
       className={`h-full antialiased ${carterOne.variable} ${jakarta.variable} ${geistMono.variable}`}
     >
-      <body className="min-h-full bg-background text-foreground">{children}</body>
+      <body className="min-h-full bg-background text-foreground">
+        {/* Ambient pulsing colour blobs — see .app-backdrop in globals.css */}
+        <div className="app-backdrop" aria-hidden="true">
+          <span className="blob-gold" />
+          <span className="blob-emerald" />
+          <span className="blob-turf" />
+        </div>
+        {children}
+      </body>
     </html>
   );
 }

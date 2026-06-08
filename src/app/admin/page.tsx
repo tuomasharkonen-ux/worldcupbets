@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import {
   Home, CheckCircle2, Loader2, Coffee, Sparkles,
-  Ticket, Trophy, CalendarDays, CalendarX, KeyRound, AlertCircle, Palette, FlaskConical,
+  Ticket, Trophy, CalendarDays, CalendarClock, CalendarX, KeyRound, AlertCircle, Palette, FlaskConical, UserCircle,
 } from 'lucide-react';
 import { TodayScreen } from './previews/TodayScreen';
 import { FixturesScreen } from './previews/FixturesScreen';
 import { LeaderboardScreen } from './previews/LeaderboardScreen';
 import { MatchScreen } from './previews/MatchScreen';
 import { JoinScreen } from './previews/JoinScreen';
+import { ProfileScreen } from './previews/ProfileScreen';
 import { DesignSystem } from './previews/DesignSystem';
 
 type View = {
@@ -29,7 +30,8 @@ const GROUPS: Group[] = [
       { key: 'today-allset', label: 'All set', Icon: CheckCircle2, render: () => <TodayScreen variant="allset" /> },
       { key: 'today-settling', label: 'Settling', Icon: Loader2, render: () => <TodayScreen variant="settling" /> },
       { key: 'today-recap', label: 'Morning recap', Icon: Sparkles, render: () => <TodayScreen variant="recap" /> },
-      { key: 'today-restday', label: 'Rest day (empty)', Icon: Coffee, render: () => <TodayScreen variant="restday" /> },
+      { key: 'today-upcoming', label: 'Next up (rest day)', Icon: CalendarClock, render: () => <TodayScreen variant="upcoming" /> },
+      { key: 'today-noschedule', label: 'No fixtures yet', Icon: Coffee, render: () => <TodayScreen variant="noschedule" /> },
     ],
   },
   {
@@ -57,6 +59,7 @@ const GROUPS: Group[] = [
     views: [
       { key: 'join', label: 'Join', Icon: KeyRound, render: () => <JoinScreen /> },
       { key: 'join-error', label: 'Join (error)', Icon: AlertCircle, render: () => <JoinScreen error /> },
+      { key: 'profile', label: 'Profile', Icon: UserCircle, render: () => <ProfileScreen /> },
     ],
   },
   {

@@ -10,6 +10,7 @@ export interface RecapPick {
   label: string; // e.g. "Outcome", "Score", "First scorer"
   detail: string; // e.g. "Brazil", "2–1", "L. Messi"
   result: 'won' | 'lost' | 'void';
+  points: number; // Points awarded for this pick (post-multiplier); 0 for a miss/void.
 }
 
 export interface RecapMatch {
@@ -43,7 +44,7 @@ export interface RecapStanding {
 }
 
 export interface RecapData {
-  slateLabel: string;
+  matchDay: number; // 1-based match-day number for this slate (see @/lib/matchday).
   matches: RecapMatch[];
   pointsGained: number;
   coinItems: RecapCoinItem[];
@@ -178,7 +179,7 @@ export function Recap({ data }: { data: RecapData }) {
           <div className={`text-center ${justNow(0) ? 'animate-rise-in' : ''}`}>
             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-subtle">Last night</p>
             <h1 className="text-glow mt-1 font-display text-3xl font-bold tracking-tight text-foreground">
-              {data.slateLabel}
+              Match day {data.matchDay}
             </h1>
           </div>
         )}
@@ -213,17 +214,24 @@ export function Recap({ data }: { data: RecapData }) {
                 )}
                 {m.picks.map((p, j) => {
                   const s = RESULT_STYLE[p.result];
+                  const hit = p.points > 0;
                   return (
                     <div
                       key={j}
-                      className={`flex items-center justify-between gap-2 text-sm ${justNow(scene) ? (p.result === 'won' ? 'animate-hit-pop' : p.result === 'lost' ? 'animate-miss-shake' : '') : ''}`}
+                      className={`flex items-center gap-2 text-sm ${justNow(scene) ? (p.result === 'won' ? 'animate-hit-pop' : p.result === 'lost' ? 'animate-miss-shake' : '') : ''}`}
                     >
-                      <span className="min-w-0 truncate text-muted">
+                      <span className="min-w-0 flex-1 truncate text-muted">
                         <span className="text-subtle">{p.label}:</span> {p.detail}
                       </span>
-                      <span className={`inline-flex shrink-0 items-center gap-1 font-bold ${s.color}`}>
+                      <span className={`inline-flex w-16 shrink-0 items-center justify-end gap-1 text-xs font-bold ${s.color}`}>
                         <s.Icon className="size-4" aria-hidden />
                         {s.tag}
+                      </span>
+                      <span
+                        className={`w-[3.75rem] shrink-0 text-right font-mono text-sm font-bold tabular-nums ${hit ? 'text-points' : 'text-subtle'}`}
+                      >
+                        {hit ? `+${p.points}` : '0'}
+                        <span className="ml-0.5 text-[0.65rem] font-medium opacity-80">pts</span>
                       </span>
                     </div>
                   );

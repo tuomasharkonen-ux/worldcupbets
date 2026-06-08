@@ -1,6 +1,6 @@
 'use client';
 
-import { Trophy, KeyRound, UserRound, AlertCircle, ArrowRight } from 'lucide-react';
+import { Trophy, KeyRound, UserRound, Lock, AlertCircle, ArrowRight } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -16,7 +16,7 @@ export function JoinScreen({ error = false }: { error?: boolean }) {
           <h1 className="text-glow font-display text-4xl font-bold tracking-tight text-foreground">
             World Cup Bets
           </h1>
-          <p className="text-sm text-muted">WC 2026 — five-player betting league</p>
+          <p className="text-sm text-muted">WC 2026 — the friends&apos; betting league</p>
         </div>
 
         <Card variant="glass" padding="lg" className="space-y-5">
@@ -47,8 +47,20 @@ export function JoinScreen({ error = false }: { error?: boolean }) {
               <Input id="display_name" name="display_name" type="text" maxLength={32} autoComplete="nickname" placeholder="How you'll appear on the leaderboard" />
             </div>
 
+            <div className="space-y-1.5">
+              <label htmlFor="pin" className="flex items-center gap-1.5 text-sm font-medium text-muted">
+                <Lock className="size-4" aria-hidden />
+                Your PIN
+              </label>
+              <Input id="pin" name="pin" type="password" inputMode="numeric" autoComplete="off" placeholder="4–6 digits" />
+              <p className="text-xs text-muted">
+                New name? This sets your PIN. Returning? Enter the PIN you chose — it keeps
+                others from logging in as you.
+              </p>
+            </div>
+
             <Button type="submit" size="lg" className="w-full">
-              Join the league
+              Enter the league
               <ArrowRight className="size-5" aria-hidden />
             </Button>
           </form>

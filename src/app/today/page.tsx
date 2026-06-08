@@ -4,10 +4,13 @@ import { CalendarDays, Clock, Lock, CircleDot, CheckCircle2, Ticket, Loader2, Co
 import { getSession } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
+import { Countdown } from '@/components/Countdown';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Flag } from '@/components/ui/flag';
 import { currentSlateKey, slateKeyOf, slateLabel } from '@/lib/slate';
+import { matchDayNumber } from '@/lib/matchday';
 import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding } from './Recap';
 import type {
   Bet,
@@ -34,6 +37,27 @@ function formatKickoff(utc: string) {
 
 type MatchRow = Match & { home_team: Team; away_team: Team };
 
+// Live (non-void) members of a given slate. Pulls a generous UTC window around the
+// slate's Helsinki day, then filters to the exact slate — membership is computed
+// from kickoff, never stored.
+async function fetchSlateMembers(slateKey: string, rollover: number): Promise<MatchRow[]> {
+  const dayMs = 24 * 60 * 60 * 1000;
+  const slateMidnightUtc = new Date(`${slateKey}T00:00:00Z`).getTime();
+  const windowStart = new Date(slateMidnightUtc - dayMs).toISOString();
+  const windowEnd = new Date(slateMidnightUtc + 2 * dayMs).toISOString();
+
+  const { data } = await db
+    .from('matches')
+    .select('*, home_team:home_team_id(*), away_team:away_team_id(*)')
+    .gte('kickoff_at', windowStart)
+    .lte('kickoff_at', windowEnd)
+    .order('kickoff_at', { ascending: true });
+
+  return ((data ?? []) as MatchRow[]).filter(
+    m => m.status !== 'void' && slateKeyOf(m.kickoff_at, rollover) === slateKey,
+  );
+}
+
 const PROP_LABEL: Record<string, string> = {
   first_scorer: 'First scorer',
   anytime_scorer: 'Anytime scorer',
@@ -57,38 +81,44 @@ export default async function TodayPage() {
   const rollover = league?.config.daily?.rollover_hour_local ?? 9;
 
   const now = new Date();
-  const slateKey = currentSlateKey(now, rollover);
+  let slateKey = currentSlateKey(now, rollover);
+  let members = await fetchSlateMembers(slateKey, rollover);
 
-  // Pull a generous UTC window around the slate's Helsinki day, then filter to the
-  // exact slate. (Membership is computed from kickoff, never stored.)
-  const dayMs = 24 * 60 * 60 * 1000;
-  const slateMidnightUtc = new Date(`${slateKey}T00:00:00Z`).getTime();
-  const windowStart = new Date(slateMidnightUtc - dayMs).toISOString();
-  const windowEnd = new Date(slateMidnightUtc + 2 * dayMs).toISOString();
+  // If the current slate has no fixtures (a rest day), jump ahead to the next slate
+  // that does. We always surface the next *known* matches — with betting open until
+  // their kickoff — rather than a dead-end "nothing today". The current slate is only
+  // empty here because last night's slate has already rolled over, so there's no recap
+  // to preserve.
+  let isUpcoming = false;
+  if (members.length === 0) {
+    const { data: nextRows } = await db
+      .from('matches')
+      .select('kickoff_at')
+      .neq('status', 'void')
+      .gte('kickoff_at', now.toISOString())
+      .order('kickoff_at', { ascending: true })
+      .limit(1);
+    const nextKickoff = nextRows?.[0]?.kickoff_at as string | undefined;
+    if (nextKickoff) {
+      slateKey = slateKeyOf(nextKickoff, rollover);
+      members = await fetchSlateMembers(slateKey, rollover);
+      isUpcoming = true;
+    }
+  }
 
-  const { data: windowMatches } = await db
-    .from('matches')
-    .select('*, home_team:home_team_id(*), away_team:away_team_id(*)')
-    .gte('kickoff_at', windowStart)
-    .lte('kickoff_at', windowEnd)
-    .order('kickoff_at', { ascending: true });
-
-  const members = ((windowMatches ?? []) as MatchRow[]).filter(
-    m => m.status !== 'void' && slateKeyOf(m.kickoff_at, rollover) === slateKey,
-  );
-
-  // ─── rest day ──────────────────────────────────────────────────────────────
+  // ─── no fixtures known ───────────────────────────────────────────────────────
+  // The only empty state left: the schedule ahead genuinely isn't published yet (rare).
   if (members.length === 0) {
     return (
       <Shell>
         <SlateHeader slateKey={slateKey} />
         <Card variant="glass" padding="lg" className="space-y-3 text-center">
           <Coffee className="mx-auto size-8 text-subtle" aria-hidden />
-          <p className="font-display text-lg font-bold text-foreground">No matches today</p>
+          <p className="font-display text-lg font-bold text-foreground">No matches yet</p>
           <p className="text-sm text-muted">
-            A rest day — the slate skips a beat. Check the{' '}
+            The next fixtures haven’t been published yet. Check the{' '}
             <Link href="/fixtures" className="font-medium text-primary-bright hover:underline">full schedule</Link>{' '}
-            for what’s next.
+            once they’re announced.
           </p>
         </Card>
       </Shell>
@@ -170,9 +200,79 @@ export default async function TodayPage() {
   const firstKickoff = members[0].kickoff_at;
   const missingCount = members.filter(m => !hasCompleteCore(m.id)).length;
 
+  // Game-day number for the slate, numbered over the whole (non-void) schedule so it
+  // matches the full fixtures list and the recap.
+  const { data: allKickoffs } = await db
+    .from('matches')
+    .select('kickoff_at')
+    .neq('status', 'void');
+  const matchDay = matchDayNumber((allKickoffs ?? []).map(r => r.kickoff_at as string), firstKickoff);
+
+  // Inner row content, shared between the clickable (all-set) and plain (betting) layouts.
+  // `editable` shows the pencil affordance only where a row actually links somewhere.
+  function MatchRowInner({ m, editable }: { m: MatchRow; editable: boolean }) {
+    const locked = m.status !== 'scheduled' || now >= new Date(m.kickoff_at);
+    const bs = betsByMatch.get(m.id) ?? [];
+    const outcome = bs.find(b => b.bet_type === 'outcome');
+    const exact = bs.find(b => b.bet_type === 'exact_score');
+    const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+    const complete = hasCompleteCore(m.id);
+    const totalStake = bs.reduce((s, b) => s + b.stake_coins, 0);
+
+    return (
+      <>
+        <div className="flex items-center justify-between">
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
+            {m.group_label ? `Group ${m.group_label}` : m.stage}
+          </span>
+          {locked ? (
+            <Badge variant="locked" size="sm"><Lock aria-hidden />Locked</Badge>
+          ) : (
+            <Badge variant="open" size="sm"><CircleDot aria-hidden />Open</Badge>
+          )}
+        </div>
+
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className="flex min-w-0 items-center justify-end gap-2 font-display font-semibold text-foreground">
+            <span className="truncate">{m.home_team.name}</span>
+            <Flag name={m.home_team.name} countryCode={m.home_team.country_code} size="sm" />
+          </span>
+          <span className="text-xs font-medium uppercase text-subtle">vs</span>
+          <span className="flex min-w-0 items-center gap-2 font-display font-semibold text-foreground">
+            <Flag name={m.away_team.name} countryCode={m.away_team.country_code} size="sm" />
+            <span className="truncate">{m.away_team.name}</span>
+          </span>
+        </div>
+
+        <div className="flex items-center justify-between gap-2 text-sm">
+          <span className="flex items-center gap-1.5 text-muted">
+            <Clock className="size-4" aria-hidden />
+            {formatKickoff(m.kickoff_at)}
+          </span>
+          {complete ? (
+            <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted">
+              <span className="truncate">
+                {outcomeLabel((outcome!.selection as OutcomeSelection).result, m.home_team.name, m.away_team.name)}
+                {' · '}
+                {(exact!.selection as ExactScoreSelection).home}–{(exact!.selection as ExactScoreSelection).away}
+                {prop ? ' · prop' : ''}
+              </span>
+              {totalStake > 0 && <Badge variant="primary" size="sm">{totalStake}¢ staked</Badge>}
+              {editable && !locked && <Pencil className="size-3.5 shrink-0 text-subtle" aria-hidden />}
+            </span>
+          ) : locked ? (
+            <span className="text-xs text-subtle">No bet</span>
+          ) : (
+            <span className="text-xs font-semibold text-primary-bright">Needs a pick</span>
+          )}
+        </div>
+      </>
+    );
+  }
+
   return (
     <Shell>
-      <SlateHeader slateKey={slateKey} />
+      <SlateHeader slateKey={slateKey} isUpcoming={isUpcoming} />
 
       {state === 'allset' ? (
         <div className="flex flex-col items-center gap-3 py-3 text-center">
@@ -180,92 +280,52 @@ export default async function TodayPage() {
           <div>
             <p className="font-display text-2xl font-bold text-foreground">You’re all set</p>
             <p className="mt-1.5 text-base text-muted">
-              Slip in for every match. Bets stay editable until each kickoff — first is {formatKickoff(firstKickoff)}.
+              Slip in for every match. Tap any match below to edit before it kicks off.
             </p>
           </div>
+          <Countdown target={firstKickoff} />
         </div>
       ) : (
         <div className="flex flex-col items-center gap-3 py-3 text-center">
           <Ticket className="size-12 text-primary-bright" aria-hidden />
           <div>
-            <p className="font-display text-2xl font-bold text-foreground">Build tonight’s slip</p>
+            <p className="font-display text-2xl font-bold text-foreground">
+              Place your bets for Game Day {matchDay}
+            </p>
             <p className="mt-1.5 text-base text-muted">
               {missingCount} of {members.length} {missingCount === 1 ? 'match' : 'matches'} still need a pick.
             </p>
           </div>
+          <Countdown target={firstKickoff} />
+          <Button asChild size="lg" variant="primary" className="mt-4 w-full">
+            <Link href={`/matches/${members[0].id}`}>
+              <Ticket aria-hidden />
+              Place your bets
+            </Link>
+          </Button>
         </div>
       )}
 
-      <div className="space-y-2.5">
-        {members.map(m => {
-          const locked = m.status !== 'scheduled' || now >= new Date(m.kickoff_at);
-          const bs = betsByMatch.get(m.id) ?? [];
-          const outcome = bs.find(b => b.bet_type === 'outcome');
-          const exact = bs.find(b => b.bet_type === 'exact_score');
-          const prop = bs.find(b => PROP_LABEL[b.bet_type]);
-          const complete = hasCompleteCore(m.id);
-          const totalStake = bs.reduce((s, b) => s + b.stake_coins, 0);
-
-          return (
+      {state === 'allset' ? (
+        <div className="space-y-2.5">
+          {members.map(m => (
             <Link
               key={m.id}
-              href={`/matches/${m.id}`}
+              href={`/matches/${m.id}?edit=1`}
               className="glass group flex flex-col gap-3 rounded-2xl px-4 py-3.5 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-border-strong"
             >
-              <div className="flex items-center justify-between">
-                <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
-                  {m.group_label ? `Group ${m.group_label}` : m.stage}
-                </span>
-                {locked ? (
-                  <Badge variant="locked" size="sm"><Lock aria-hidden />Locked</Badge>
-                ) : (
-                  <Badge variant="open" size="sm"><CircleDot aria-hidden />Open</Badge>
-                )}
-              </div>
-
-              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-                <span className="flex min-w-0 items-center justify-end gap-2 font-display font-semibold text-foreground">
-                  <span className="truncate">{m.home_team.name}</span>
-                  <Flag name={m.home_team.name} countryCode={m.home_team.country_code} size="sm" />
-                </span>
-                <span className="text-xs font-medium uppercase text-subtle">vs</span>
-                <span className="flex min-w-0 items-center gap-2 font-display font-semibold text-foreground">
-                  <Flag name={m.away_team.name} countryCode={m.away_team.country_code} size="sm" />
-                  <span className="truncate">{m.away_team.name}</span>
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between gap-2 text-sm">
-                <span className="flex items-center gap-1.5 text-muted">
-                  <Clock className="size-4" aria-hidden />
-                  {formatKickoff(m.kickoff_at)}
-                </span>
-                {complete ? (
-                  <span className="flex min-w-0 items-center gap-1.5 truncate text-xs text-muted">
-                    <span className="truncate">
-                      {outcomeLabel((outcome!.selection as OutcomeSelection).result, m.home_team.name, m.away_team.name)}
-                      {' · '}
-                      {(exact!.selection as ExactScoreSelection).home}–{(exact!.selection as ExactScoreSelection).away}
-                      {prop ? ' · prop' : ''}
-                    </span>
-                    {totalStake > 0 && <Badge variant="primary" size="sm">{totalStake}¢ staked</Badge>}
-                    {!locked && <Pencil className="size-3.5 shrink-0 text-subtle" aria-hidden />}
-                  </span>
-                ) : locked ? (
-                  <span className="text-xs text-subtle">No bet</span>
-                ) : (
-                  <Badge variant="primary" size="sm"><Ticket aria-hidden />Add picks</Badge>
-                )}
-              </div>
+              <MatchRowInner m={m} editable />
             </Link>
-          );
-        })}
-      </div>
-
-      {state === 'betting' && (
-        <p className="text-center text-xs text-subtle">
-          Tap a match to set your outcome, score, and optional player prop.
-        </p>
+          ))}
+        </div>
+      ) : (
+        <div className="divide-y divide-border">
+          {members.map(m => (
+            <div key={m.id} className="flex flex-col gap-3 px-1 py-3.5">
+              <MatchRowInner m={m} editable={false} />
+            </div>
+          ))}
+        </div>
       )}
     </Shell>
   );
@@ -303,17 +363,18 @@ async function buildRecap(
     const bs = betsByMatch.get(m.id) ?? [];
     const picks: RecapPick[] = bs
       .map(b => {
+        const points = b.glory_awarded ?? 0;
         if (b.bet_type === 'outcome') {
           const sel = b.selection as OutcomeSelection;
-          return { label: 'Outcome', detail: outcomeLabel(sel.result, m.home_team.name, m.away_team.name), result: b.status } as RecapPick;
+          return { label: 'Outcome', detail: outcomeLabel(sel.result, m.home_team.name, m.away_team.name), result: b.status, points } as RecapPick;
         }
         if (b.bet_type === 'exact_score') {
           const sel = b.selection as ExactScoreSelection;
-          return { label: 'Score', detail: `${sel.home}–${sel.away}`, result: b.status } as RecapPick;
+          return { label: 'Score', detail: `${sel.home}–${sel.away}`, result: b.status, points } as RecapPick;
         }
         if (PROP_LABEL[b.bet_type]) {
           const sel = b.selection as FootballerSelection;
-          return { label: PROP_LABEL[b.bet_type], detail: playerName.get(sel.footballer_id) ?? 'Unknown', result: b.status } as RecapPick;
+          return { label: PROP_LABEL[b.bet_type], detail: playerName.get(sel.footballer_id) ?? 'Unknown', result: b.status, points } as RecapPick;
         }
         return null;
       })
@@ -402,8 +463,19 @@ async function buildRecap(
 
   const balance = allManagers.find(m => m.id === managerId)?.coins ?? 0;
 
+  // Match-day number for the slate, numbered over the whole (non-void) schedule so it
+  // matches the full fixtures list.
+  const { data: allKickoffs } = await db
+    .from('matches')
+    .select('kickoff_at')
+    .neq('status', 'void');
+  const matchDay = matchDayNumber(
+    (allKickoffs ?? []).map(r => r.kickoff_at as string),
+    members[0].kickoff_at,
+  );
+
   return {
-    slateLabel: slateLabel(slateKey),
+    matchDay,
     matches: recapMatches,
     pointsGained,
     coinItems,
@@ -424,12 +496,14 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SlateHeader({ slateKey }: { slateKey: string }) {
+function SlateHeader({ slateKey, isUpcoming = false }: { slateKey: string; isUpcoming?: boolean }) {
   return (
     <div className="flex items-center gap-2.5">
       <CalendarDays className="size-6 text-primary-bright" aria-hidden />
       <div>
-        <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">Today</h1>
+        <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+          {isUpcoming ? 'Next up' : 'Today'}
+        </h1>
         <p className="text-xs text-subtle">{slateLabel(slateKey)} slate</p>
       </div>
     </div>

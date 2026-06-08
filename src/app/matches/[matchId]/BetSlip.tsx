@@ -97,6 +97,9 @@ interface Props {
   // the slate, the total, and where to go after saving (the next match, or null →
   // the "you're all set" Today screen). Absent for matches outside today's slate.
   slate?: { index: number; total: number; nextHref: string | null };
+  // Edit flow (e.g. tapping a match from the "all set" Today screen): after saving,
+  // return here instead of stepping through the slate. No counter/next-arrow shown.
+  returnTo?: string;
   // Optional override for the submit action. Defaults to the real `submitBet`
   // server action; the admin preview passes a no-op so the slip is testable
   // without a session or DB.
@@ -106,7 +109,7 @@ interface Props {
   onSaved?: () => void;
 }
 
-export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, scoring, slate, existing, action, onSaved }: Props) {
+export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, scoring, slate, returnTo, existing, action, onSaved }: Props) {
   const boundAction = action ?? submitBet.bind(null, matchId);
   const [state, formAction] = useActionState<BetSlipState, FormData>(boundAction, {});
   const router = useRouter();
@@ -114,7 +117,7 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
   // After a save we briefly flash "Bet saved" in the button, then advance to the
   // next slip (or the all-set screen). Only when we have stepper context — a plain
   // match keeps the old in-place "saved" banner.
-  const stepping = slate != null || onSaved != null;
+  const stepping = slate != null || returnTo != null || onSaved != null;
   const [saved, setSaved] = useState(false);
   const advanced = useRef(false);
   useEffect(() => {
@@ -127,13 +130,13 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
         setSaved(false);
         advanced.current = false; // let the preview replay
       } else {
-        router.push(slate?.nextHref ?? '/today');
+        router.push(slate?.nextHref ?? returnTo ?? '/today');
       }
     }, 950);
     return () => clearTimeout(t);
     // Depend on the whole `state` (a fresh object per submit) so a repeated save
     // re-triggers — useActionState keeps `success` true across submits otherwise.
-  }, [state, stepping, slate?.nextHref, onSaved, router]);
+  }, [state, stepping, slate?.nextHref, returnTo, onSaved, router]);
 
   // Core bets are mandatory — track them so we can gate the submit button.
   const [outcome, setOutcome] = useState<string>(existing.outcome ?? '');

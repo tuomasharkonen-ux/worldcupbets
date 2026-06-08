@@ -33,8 +33,9 @@ Goal: an empty app that deploys and talks to the database.
 - [x] Apply schema from `DATA_MODEL.md` (`supabase/migrations/001_initial_schema.sql`).
 - [x] `.env.example` + secrets wired (`FOOTBALL_DATA_TOKEN`, `CRON_SECRET`, `LEAGUE_PASSCODE`, `SUPABASE_*`, `SESSION_PASSWORD`).
 - [x] Passcode join flow → claim a manager → signed cookie (iron-session). (This *is* the "auth.")
+- [x] **Auth hardening (migration `006`):** per-player PIN on top of the shared passcode (closes the "log in as anyone by name" gap so the league can be shared beyond the inner circle), configurable `max_managers` cap (default 20), ~400-day session (fixes iron-session's 14-day default seal expiry), and a `/profile` page (edit name, emoji avatar, PIN; sign out).
 
-**Done when:** five people can join with the passcode and see their (empty) profile. ✅
+**Done when:** people can join with the passcode + a PIN and see their (empty) profile. ✅
 
 ---
 

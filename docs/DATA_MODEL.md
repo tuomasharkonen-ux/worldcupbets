@@ -33,6 +33,8 @@ Single-row global config. Keeps tunable values out of the code.
 | `phase` | text | `group` \| `knockout` \| `finished` |
 | `config` | jsonb | all tunable constants (scoring values, costs, multipliers) |
 
+`config.max_managers` (default 20, migration `006`) caps how many players can join — the cap is enforced in the join server action, not the DB.
+
 `config.glory` holds the Glory payouts: `outcome_correct` (10), `exact_score_bonus` (15), and the player props `first_goalscorer` (20), `anytime_scorer` (8), `carded` (6), `stat_leader` (15). Prop values were added in migration `002`. (A `glory.participation` placeholder existed in `001`; Phase 3 retires it — participation is a **Coin** reward, never Glory.)
 
 > **Per-bet Coin rubric (migration `003`)** sets `config.coins.*` per-bet keys —
@@ -52,16 +54,18 @@ Single-row global config. Keeps tunable values out of the code.
 > combined stage × stake multiplier). See `GAME_DESIGN.md` §5.
 
 ### `managers`
-The five humans.
+The humans (up to `config.max_managers`).
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | uuid PK | |
-| `display_name` | text | unique |
-| `avatar_url` | text | optional |
+| `display_name` | text | unique; the login identity |
+| `avatar_url` | text | optional; stores a chosen emoji (no upload infra) |
 | `glory` | int | cached, default 0 |
 | `coins` | int | cached, default 100 |
 | `joined_at` | timestamptz | |
+| `pin_hash` | text | per-player PIN, scrypt `salt:hash` (migration `006`); nullable for pre-PIN players, back-filled on next login |
+| `state` | jsonb | per-manager scratch state (migration `005`): streak counter, last-closed-slate guard |
 
 ### `teams`
 The 48 nations. Holds the cross-source ID mapping.
