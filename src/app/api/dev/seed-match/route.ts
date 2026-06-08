@@ -14,6 +14,9 @@ import { db } from '@/lib/supabase';
 // Requires Authorization: Bearer <CRON_SECRET> header.
 
 export async function GET(req: NextRequest) {
+  if (process.env.NODE_ENV === 'production') {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
   if (!verifyCronSecret(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

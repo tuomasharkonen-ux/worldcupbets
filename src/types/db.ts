@@ -80,6 +80,10 @@ export interface Manager {
   // Per-player PIN hash (migration 006), stored as salt:hash via src/lib/pin.ts.
   // Null for players who joined before PINs existed — back-filled on next login.
   pin_hash: string | null;
+  // Brute-force lockout (migration 007): consecutive wrong-PIN count and a cooldown
+  // timestamp. Reset on a successful login. See src/app/join/actions.ts.
+  failed_pin_attempts: number;
+  pin_locked_until: string | null;
 }
 
 // Per-manager scratch state (migration 005), updated at day-close. All fields

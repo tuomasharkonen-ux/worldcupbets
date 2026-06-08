@@ -8,6 +8,12 @@ import { redirect } from 'next/navigation';
 
 const DEFAULT_MAX_MANAGERS = 20;
 
+// PIN brute-force lockout (migration 007). PINs are 4–6 digits, so once an attacker
+// knows the shared passcode the PIN is all that protects a name. After this many
+// consecutive wrong PINs the name is frozen for the cooldown window.
+const MAX_PIN_ATTEMPTS = 5;
+const PIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
+
 export async function joinLeague(formData: FormData) {
   const passcode = formData.get('passcode')?.toString().trim();
   const displayName = formData.get('display_name')?.toString().trim();
@@ -31,18 +37,47 @@ export async function joinLeague(formData: FormData) {
   // PIN); a new name means "sign me up" (set a PIN, subject to the league cap).
   const { data: existing } = await db
     .from('managers')
-    .select('id, pin_hash')
+    .select('id, pin_hash, failed_pin_attempts, pin_locked_until')
     .eq('display_name', displayName)
     .maybeSingle();
 
   let managerId: string;
 
   if (existing) {
-    const row = existing as { id: string; pin_hash: string | null };
+    const row = existing as {
+      id: string;
+      pin_hash: string | null;
+      failed_pin_attempts: number;
+      pin_locked_until: string | null;
+    };
     if (row.pin_hash) {
+      // Frozen by too many wrong PINs? Stay frozen until the cooldown elapses.
+      if (row.pin_locked_until && new Date(row.pin_locked_until) > new Date()) {
+        redirect('/join?error=locked');
+      }
       // Returning player — the PIN is what proves it's really them on a new device.
       const ok = await verifyPin(pin, row.pin_hash);
-      if (!ok) redirect('/join?error=wrong_pin');
+      if (!ok) {
+        // Count the miss; freeze the name once the limit is hit (and reset the
+        // counter so the next window starts clean).
+        const attempts = (row.failed_pin_attempts ?? 0) + 1;
+        const locked = attempts >= MAX_PIN_ATTEMPTS;
+        await db
+          .from('managers')
+          .update({
+            failed_pin_attempts: locked ? 0 : attempts,
+            pin_locked_until: locked ? new Date(Date.now() + PIN_LOCKOUT_MS).toISOString() : null,
+          })
+          .eq('id', row.id);
+        redirect(locked ? '/join?error=locked' : '/join?error=wrong_pin');
+      }
+      // Success — clear any accumulated lockout state.
+      if ((row.failed_pin_attempts ?? 0) > 0 || row.pin_locked_until) {
+        await db
+          .from('managers')
+          .update({ failed_pin_attempts: 0, pin_locked_until: null })
+          .eq('id', row.id);
+      }
     } else {
       // Legacy player from before PINs existed: claim the slot by setting one now.
       const { error } = await db
