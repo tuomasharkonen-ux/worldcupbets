@@ -5,6 +5,24 @@ import { ladderBreakdown } from '@/settlement/favorites';
 import type { FavoritesConfig } from '@/types/db';
 import { OnboardingPicker, type PickerTeam, type PickerPlayer } from './OnboardingPicker';
 
+// Page size for the paginated footballers fetch below. PostgREST caps any single
+// response at this many rows by default, so we page through in lockstep with it.
+const PLAYER_PAGE_SIZE = 1000;
+
+// One page of the deterministic, fully-ordered squad list. Ordering by team_id then
+// name (squad_number is NULL for everyone today) gives a stable total order so .range()
+// pagination never skips or double-counts a row.
+function fetchPlayerPage(from: number) {
+  return db
+    .from('footballers')
+    .select('id, team_id, name, position, squad_number')
+    .order('team_id', { ascending: true })
+    .order('squad_number', { ascending: true, nullsFirst: false })
+    .order('name', { ascending: true })
+    .range(from, from + PLAYER_PAGE_SIZE - 1)
+    .then(r => r.data);
+}
+
 // First-login onboarding (migration 009): lock in a favorite team (your title bet,
 // scored on an odds-weighted advancement ladder) and a favorite player (Points per
 // goal, a small penalty if booked). Both are fixed for the whole tournament.
@@ -43,12 +61,20 @@ export default async function OnboardingPage() {
   }));
 
   // The full squad list (small per-player payload) so player selection is instant once
-  // a team is chosen — no extra round-trip mid-flow.
-  const { data: playerRows } = await db
-    .from('footballers')
-    .select('id, team_id, name, position, squad_number')
-    .order('squad_number', { ascending: true, nullsFirst: false });
-  const players: PickerPlayer[] = (playerRows ?? []).map(p => ({
+  // a team is chosen — no extra round-trip mid-flow. There are ~1250 footballers across
+  // 48 squads, which is over PostgREST's default 1000-row response cap, so we MUST
+  // paginate — a single un-ranged select silently truncates and leaves whole teams
+  // (whichever sort last) with zero players in the picker. Order by team first so
+  // pagination is deterministic; squad_number is currently NULL for every player (the
+  // competition-teams API doesn't return shirt numbers), hence the name tiebreaker.
+  const playerRows: NonNullable<Awaited<ReturnType<typeof fetchPlayerPage>>> = [];
+  for (let from = 0; ; from += PLAYER_PAGE_SIZE) {
+    const page = await fetchPlayerPage(from);
+    if (!page || page.length === 0) break;
+    playerRows.push(...page);
+    if (page.length < PLAYER_PAGE_SIZE) break;
+  }
+  const players: PickerPlayer[] = playerRows.map(p => ({
     id: p.id as string,
     teamId: p.team_id as string,
     name: p.name as string,
