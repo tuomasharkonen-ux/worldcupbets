@@ -64,6 +64,9 @@ export interface LeagueConfig {
     max_total_multiplier: number;
   };
   glory_multipliers: Record<MatchStage, number>;
+  // Max players allowed to join the league (migration 006; was a hardcoded 5).
+  // Optional so pre-006 configs still type-check; callers fall back to a default.
+  max_managers?: number;
 }
 
 export interface Manager {
@@ -74,6 +77,9 @@ export interface Manager {
   coins: number;
   joined_at: string;
   state: ManagerState;
+  // Per-player PIN hash (migration 006), stored as salt:hash via src/lib/pin.ts.
+  // Null for players who joined before PINs existed — back-filled on next login.
+  pin_hash: string | null;
 }
 
 // Per-manager scratch state (migration 005), updated at day-close. All fields

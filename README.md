@@ -1,6 +1,6 @@
 # World Cup Bets
 
-A private, five-player betting league for the 2026 World Cup. Predict match outcomes, exact scores, and player props (first/anytime goalscorer, who gets carded), lock at kickoff, and watch Points settle automatically after full time. No real money — just bragging rights between friends.
+A private betting league for the 2026 World Cup, for you and a circle of friends. Predict match outcomes, exact scores, and player props (first/anytime goalscorer, who gets carded), lock at kickoff, and watch Points settle automatically after full time. No real money — just bragging rights between friends.
 
 **Live:** <https://worldcupbets.vercel.app>
 
@@ -14,15 +14,15 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 
 - **Next.js (App Router) + TypeScript + Tailwind v4** — server components for reads, server actions for writes.
 - **Design system** — bold/playful: 3D buttons, glassmorphism, lucide icons, WCAG AA. Semantic tokens + `ui/` primitives (CVA + Radix Slot). See [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md).
-- **Supabase Postgres** — game state. Accessed server-side with the service-role key; RLS intentionally off (trust model is "five friends").
-- **iron-session** — passcode join flow → signed cookie. No passwords, no email.
+- **Supabase Postgres** — game state. Accessed server-side with the service-role key; RLS intentionally off (trust model is "a private group of friends").
+- **iron-session** — shared passcode + a per-player PIN → signed cookie that persists ~400 days (stays logged in on the device until you sign out). No email.
 - **Vercel** — hosting + the `fixtures-sync` cron.
 - **cron-job.org** — the twice-daily `settle` cron (Vercel Hobby's cron limits made an external trigger necessary; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
 - **Jest** — unit tests for the settlement engine.
 
 ## How it works
 
-1. **Join** — enter the shared `LEAGUE_PASSCODE` and a display name → claim a manager slot → signed cookie keeps you logged in.
+1. **Join** — enter the shared `LEAGUE_PASSCODE`, a display name, and a 4–6 digit PIN → claim a manager slot → signed cookie keeps you logged in (~400 days). A new name signs you up and sets your PIN; a returning name requires that PIN, so nobody can log in as you just by knowing your name. League size is capped by `config.max_managers` (default 20). Edit your name, avatar, or PIN any time on the **/profile** page.
 2. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and/or an Exact Score bet. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat.
 3. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Points movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
 4. **Leaderboard** — managers ranked by Points.
@@ -32,8 +32,9 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 ```
 src/
   app/
-    join/                 passcode join flow (page + server action)
-    fixtures/             upcoming matches + recent results
+    join/                 passcode + PIN login/signup flow (page + server action)
+    profile/              edit name, avatar, PIN; sign out (page + server actions)
+    fixtures/             full schedule grouped by NA match day (read-only; only today's slate is tappable)
     matches/[matchId]/    bet slip (page + BetSlip client component + action)
     leaderboard/          Points + Coins ranking
     today/                daily slate: betting → all-set → settling → recap
@@ -62,7 +63,7 @@ npm run lint                 # eslint + tsc --noEmit
 
 ### Preview gallery (`/admin`)
 
-A hidden, unlinked harness at [`/admin`](http://localhost:3000/admin) for eyeballing and testing every view on fabricated data — no session, no DB, instant. A side-nav switches between: the Today slate in all states (betting, all-set, settling, morning recap, rest day), the match bet slip (fully interactive — outcome/score/props/stakes; Save is a no-op) and a finished/settled match, the full + empty schedule, the leaderboard, the join screen (+ error), and a live **design-system** page (tokens, buttons, badges, cards, inputs, flags, stake chips, dialog, motion). Previews reuse the real components; mock data lives in `src/app/admin/mock.ts`.
+A hidden, unlinked harness at [`/admin`](http://localhost:3000/admin) for eyeballing and testing every view on fabricated data — no session, no DB, instant. A side-nav switches between: the Today slate in all states (betting, all-set, settling, morning recap, next-up on a rest day, no-fixtures-yet), the match bet slip (fully interactive — outcome/score/props/stakes; Save is a no-op) and a finished/settled match, the full + empty schedule, the leaderboard, the join screen (+ error), and a live **design-system** page (tokens, buttons, badges, cards, inputs, flags, stake chips, dialog, motion). Previews reuse the real components; mock data lives in `src/app/admin/mock.ts`.
 
 ### Environment variables
 

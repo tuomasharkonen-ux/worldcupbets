@@ -46,11 +46,14 @@ export async function Nav() {
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="hidden items-center gap-1.5 text-sm text-muted sm:flex">
+          <Link
+            href="/profile"
+            className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-sm text-muted transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground"
+          >
             <User className="size-4" aria-hidden />
-            {session.displayName}
-          </span>
-          <form action={signOut}>
+            <span className="hidden sm:inline">{session.displayName}</span>
+          </Link>
+          <form action={signOut} className="hidden sm:block">
             <Button type="submit" variant="ghost" size="sm" aria-label="Sign out">
               <LogOut className="size-4" aria-hidden />
               <span className="hidden sm:inline">Sign out</span>

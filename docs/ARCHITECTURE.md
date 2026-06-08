@@ -104,8 +104,8 @@ If the Sofascore dependency proves too flaky during the tournament, the document
 
 ## 4. Security & access
 
-- **Join:** shared `LEAGUE_PASSCODE`. Entering it lets you create/claim a manager. A signed cookie keeps you "logged in." No passwords, no email.
-- **No PII**, no payments, no real money. Five trusted friends.
+- **Join:** shared `LEAGUE_PASSCODE` **+ a per-player PIN** (4–6 digits). A new display name signs up and sets its PIN; a returning name must present that PIN — so the passcode alone no longer lets anyone impersonate an existing player (the gap that made the original shared-passcode-only model unsafe to share widely). PINs are hashed with scrypt (`src/lib/pin.ts`); the column is nullable so pre-PIN players back-fill theirs on next login. A signed cookie keeps you "logged in" for ~400 days (`ttl` + cookie `maxAge` both set explicitly — iron-session's seal otherwise defaults to a 14-day expiry that would log players out mid-tournament). League size is capped by `config.max_managers` (default 20). No email.
+- **No PII**, no payments, no real money. A private group of friends.
 - **Server-only secrets:** `SUPABASE_SERVICE_ROLE_KEY`, `FOOTBALL_DATA_TOKEN`, `CRON_SECRET` live in Vercel env vars, never shipped to the client bundle.
 - **Cron protection:** cron routes check the `CRON_SECRET` header so they can't be triggered by randos hitting the URL.
 
