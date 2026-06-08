@@ -166,7 +166,6 @@ export default async function MatchPage({
     stake: outcomeBet?.stake_coins,
   };
 
-  const stageLabel = match.group_label ? `Group ${match.group_label}` : match.stage.toUpperCase();
   const isFinished = match.status === 'finished';
   const settledBets = bets.filter(b => b.status !== 'pending');
   const pendingBets = bets.filter(b => b.status === 'pending');
@@ -185,10 +184,7 @@ export default async function MatchPage({
 
         {/* Scoreboard — plain info, not a card */}
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-subtle">
-              {stageLabel}
-            </span>
+          <div className="flex items-center justify-end">
             {locked ? (
               <Badge variant="locked" size="md">
                 <Lock aria-hidden />

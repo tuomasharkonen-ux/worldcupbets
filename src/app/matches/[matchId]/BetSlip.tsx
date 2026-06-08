@@ -203,7 +203,10 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
 
       {/* Outcome — required */}
       <fieldset className="space-y-2.5">
-        <legend className="text-sm font-medium text-muted">Match outcome</legend>
+        <legend className="flex w-full items-center justify-between text-sm font-medium text-muted">
+          <span>Match outcome</span>
+          <span className="font-mono text-xs font-semibold text-points">{scoring.outcome} pts</span>
+        </legend>
         <div className="grid grid-cols-3 gap-2.5">
           {(['home', 'draw', 'away'] as const).map(opt => {
             const label = opt === 'home' ? homeTeam : opt === 'away' ? awayTeam : 'Draw';
@@ -235,8 +238,9 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
 
       {/* Exact score — required */}
       <fieldset className="space-y-2.5">
-        <legend className="text-sm font-medium text-muted">
-          Exact score <span className="font-normal text-points">(+15 pts bonus if exact)</span>
+        <legend className="flex w-full items-center justify-between text-sm font-medium text-muted">
+          <span>Exact score</span>
+          <span className="font-mono text-xs font-semibold text-points">{scoring.exactBonus} pts</span>
         </legend>
         <div className="flex items-end gap-3">
           <div className="flex-1 space-y-1">
@@ -287,8 +291,15 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
 
       {/* Player prop — optional, one slot */}
       <fieldset className="space-y-2.5">
-        <legend className="text-sm font-medium text-muted">
-          Player prop <span className="font-normal text-subtle">(optional)</span>
+        <legend className="flex w-full items-center justify-between text-sm font-medium text-muted">
+          <span>
+            Player prop <span className="font-normal text-subtle">(optional)</span>
+          </span>
+          {propType && (
+            <span className="font-mono text-xs font-semibold text-points">
+              {scoring.props[propType]} pts
+            </span>
+          )}
         </legend>
         {squads ? (
           <PropSlot

@@ -56,8 +56,7 @@ export function MatchScreen({ variant }: { variant: 'betslip' | 'finished' }) {
           </Link>
 
           <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-subtle">Group C</span>
+            <div className="flex items-center justify-end">
               <Badge variant="open" size="md"><CircleDot aria-hidden />Open</Badge>
             </div>
             <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
@@ -110,8 +109,7 @@ export function MatchScreen({ variant }: { variant: 'betslip' | 'finished' }) {
         </Link>
 
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-subtle">Group C</span>
+          <div className="flex items-center justify-end">
             <Badge variant="locked" size="md"><Lock aria-hidden />Finished</Badge>
           </div>
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
