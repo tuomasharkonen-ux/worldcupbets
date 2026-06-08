@@ -10,7 +10,6 @@ export interface RecapPick {
   label: string; // e.g. "Outcome", "Score", "First scorer"
   detail: string; // e.g. "Brazil", "2–1", "L. Messi"
   result: 'won' | 'lost' | 'void';
-  staked: number; // Coins staked on this bet (0 if none)
 }
 
 export interface RecapMatch {
@@ -22,6 +21,10 @@ export interface RecapMatch {
   homeScore: number;
   awayScore: number;
   picks: RecapPick[];
+  // One stake rides the whole match slip (GAME_DESIGN §5): Coins spent + the
+  // multiplier applied to every pick. 0 when the slip wasn't staked.
+  staked: number;
+  stakeMult: number;
 }
 
 export interface RecapCoinItem {
@@ -217,12 +220,6 @@ export function Recap({ data }: { data: RecapData }) {
                     >
                       <span className="min-w-0 truncate text-muted">
                         <span className="text-subtle">{p.label}:</span> {p.detail}
-                        {p.staked > 0 && (
-                          <span className="ml-1.5 inline-flex items-center gap-0.5 text-points">
-                            <Coins className="size-3" aria-hidden />
-                            {p.staked}¢
-                          </span>
-                        )}
                       </span>
                       <span className={`inline-flex shrink-0 items-center gap-1 font-bold ${s.color}`}>
                         <s.Icon className="size-4" aria-hidden />
@@ -232,6 +229,12 @@ export function Recap({ data }: { data: RecapData }) {
                   );
                 })}
               </div>
+              {m.staked > 0 && (
+                <p className="mt-3 flex items-center justify-center gap-1.5 border-t border-border pt-2.5 text-xs text-points">
+                  <Coins className="size-3.5" aria-hidden />
+                  {m.staked}¢ staked · ×{m.stakeMult} on every pick
+                </p>
+              )}
             </div>
           );
         })}

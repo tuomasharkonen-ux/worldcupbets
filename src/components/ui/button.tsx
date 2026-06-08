@@ -26,6 +26,8 @@ const button = cva(
           'bg-primary text-on-primary hover:bg-primary-hover shadow-[0_5px_0_0_var(--color-primary-press)] active:shadow-[0_2px_0_0_var(--color-primary-press)]',
         points:
           'bg-points text-[#0d0b1a] hover:brightness-105 shadow-[0_5px_0_0_var(--color-points-press)] active:shadow-[0_2px_0_0_var(--color-points-press)]',
+        success:
+          'bg-success text-[#0d0b1a] hover:brightness-105 shadow-[0_5px_0_0_var(--color-success-press)] active:shadow-[0_2px_0_0_var(--color-success-press)]',
         accent:
           'bg-accent text-[#0d0b1a] hover:brightness-105 shadow-[0_5px_0_0_var(--color-accent-press)] active:shadow-[0_2px_0_0_var(--color-accent-press)]',
         glass:

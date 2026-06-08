@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, Pencil, Plus, Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Flag } from '@/components/ui/flag';
@@ -10,7 +10,6 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { StakeSelector, type StakeTier } from './StakeSelector';
 
 export type PropType = 'first_scorer' | 'anytime_scorer' | 'carded';
 
@@ -79,13 +78,18 @@ interface Props {
   squads: SlipSquads;
   defaultValue: SlotValue | null;
   locked: boolean;
-  // Staking config for the prop bet (GAME_DESIGN §5). The stake selector only
-  // appears once a prop is chosen — an unstaked empty slot has nothing to stake.
-  stake: { tiers: StakeTier[]; capCoins: number; balance: number; defaultCoins?: number };
+  /** Notified whenever the chosen prop changes (for live previews). */
+  onChange?: (value: SlotValue | null) => void;
 }
 
-export function PropSlot({ squads, defaultValue, locked, stake }: Props) {
+export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
   const [value, setValue] = useState<SlotValue | null>(defaultValue);
+
+  // Surface selection changes to the parent (max-winnings counter) without making
+  // this a fully controlled component — the hidden input still drives submission.
+  useEffect(() => {
+    onChange?.(value);
+  }, [value, onChange]);
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState<'type' | 'player'>('type');
   const [pendingType, setPendingType] = useState<PropType | null>(null);
@@ -194,14 +198,6 @@ export function PropSlot({ squads, defaultValue, locked, stake }: Props) {
               </div>
             )}
           </div>
-          <StakeSelector
-            name="stake_prop"
-            tiers={stake.tiers}
-            capCoins={stake.capCoins}
-            balance={stake.balance}
-            defaultCoins={stake.defaultCoins}
-            disabled={locked}
-          />
         </div>
       ) : locked ? (
         <p className="rounded-2xl border border-border bg-surface-2 px-4 py-3 text-sm text-subtle">
