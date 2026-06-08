@@ -3,12 +3,14 @@ import { Trophy, CalendarDays, LogOut, User, Home } from 'lucide-react';
 import { getSession } from '@/lib/session';
 import { signOut } from '@/app/actions';
 import { Button } from '@/components/ui/button';
+import { BottomTabs } from '@/components/BottomTabs';
 
 export async function Nav() {
   const session = await getSession();
   if (!session.managerId) return null;
 
   return (
+    <>
     <nav className="glass sticky top-0 z-40 border-x-0 border-t-0 px-4 py-3">
       <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
         <div className="flex items-center gap-5">
@@ -45,7 +47,7 @@ export async function Nav() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="hidden items-center gap-2 sm:flex">
           <Link
             href="/profile"
             className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 text-sm text-muted transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground"
@@ -61,31 +63,9 @@ export async function Nav() {
           </form>
         </div>
       </div>
-
-      {/* Mobile nav links */}
-      <div className="mx-auto mt-2 flex max-w-4xl items-center gap-1 sm:hidden">
-        <Link
-          href="/today"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-3 py-2 text-sm font-medium text-muted"
-        >
-          <Home className="size-4" aria-hidden />
-          Today
-        </Link>
-        <Link
-          href="/fixtures"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-3 py-2 text-sm font-medium text-muted"
-        >
-          <CalendarDays className="size-4" aria-hidden />
-          Schedule
-        </Link>
-        <Link
-          href="/leaderboard"
-          className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-3 py-2 text-sm font-medium text-muted"
-        >
-          <Trophy className="size-4" aria-hidden />
-          Leaderboard
-        </Link>
-      </div>
     </nav>
+
+    <BottomTabs />
+    </>
   );
 }
