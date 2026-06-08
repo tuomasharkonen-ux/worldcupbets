@@ -8,7 +8,7 @@ Build order is deliberately **vertical then horizontal**: get one thin slice wor
 
 ## 📍 Current status (as of 2026-06-08)
 
-**Phases 0, 1, and 2 are complete.** The core loop (join → bet → lock → settle → leaderboard) is deployed at <https://worldcupbets.vercel.app> and verified end-to-end. Phase 2 (player props) is built and unit-tested; it goes live once squads are synced via the `squads-sync` endpoint. **Phase 3 slices 1–3 are built** (coins, staking, and the daily slate + animated recap — 48 unit tests green); migrations `003`/`004` are applied, `005` is **pending apply**.
+**Phases 0, 1, and 2 are complete.** The core loop (join → bet → lock → settle → leaderboard) is deployed at <https://worldcupbets.vercel.app> and verified end-to-end. Phase 2 (player props) is built and unit-tested; it goes live once squads are synced via the `squads-sync` endpoint. **Phase 3 slices 1–3 are built** (coins, staking, and the daily slate + animated recap — 48 unit tests green); migrations `003`, `004`, and `005` are all applied to production.
 
 | Phase | Status |
 | --- | --- |
@@ -101,7 +101,7 @@ post-kickoff without blocking launch — upgrades are the spine.
    the ledger). Also implemented the **goal-difference bonus** (Glory +5 / Coin +3)
    that §3 specced but the engine never built, and **retired Glory-participation**
    (participation is slate-scoped Coin → slice 3). Migration `003_phase3_coins.sql`;
-   engine + types updated; 26 unit tests green. *Pending: apply `003` to Supabase.*
+   engine + types updated; 26 unit tests green. Applied to Supabase.
 2. ✅ **Staking** — per-bet stake widget (No stake / 10¢ / 25¢ / 50¢, chips gated by
    `cap_coins` + balance) on the bet slip writing `stake_coins`/`stake_mult`; tier
    costs + cap live in `league.config.stake` (`tiers` + `cap_coins`). The engine
@@ -133,7 +133,7 @@ post-kickoff without blocking launch — upgrades are the spine.
    leaderboard with rank deltas → shop CTA), tap-to-advance + auto + Skip, with a
    reduced-motion static fallback. Migration `005_phase3_daily.sql` (config.daily,
    slate coin rubric, `managers.state`, `ledger.ref_id`→text); slate + day-close pure
-   and covered by 17 new unit tests (48 total green). *Pending: apply `005` to Supabase.*
+   and covered by 17 new unit tests (48 total green). Applied to Supabase.
    The **"you're all set"** state shows your submitted slip (still editable until each
    match's kickoff) and a **Share my bets** button that copies a Wordle-style, emoji-flag
    digest of the slate (one match per row — `🇧🇷 BRA 2–1 CRO 🇭🇷` with inline `⚡×N` on

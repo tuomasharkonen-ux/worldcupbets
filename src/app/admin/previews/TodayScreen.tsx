@@ -13,7 +13,7 @@ import { slateLabel } from '@/lib/slate';
 import { buildSlateShareText } from '@/lib/share';
 import type { Bet, ExactScoreSelection, FootballerSelection, OutcomeSelection } from '@/types/db';
 import { ScreenFrame } from './ScreenFrame';
-import { MOCK_RECAP, todayScenario, type MatchRow, type TodayVariant } from '../mock';
+import { MOCK_RECAP, MOCK_RECAP_ROUGH, todayScenario, type MatchRow, type TodayVariant } from '../mock';
 
 const TIMEZONE = 'Europe/Helsinki';
 
@@ -82,10 +82,10 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
   }
 
   // ─── recap ─────────────────────────────────────────────────────────────────
-  if (variant === 'recap') {
+  if (variant === 'recap' || variant === 'recap-rough') {
     return (
       <Shell>
-        <Recap data={MOCK_RECAP} />
+        <Recap data={variant === 'recap' ? MOCK_RECAP : MOCK_RECAP_ROUGH} />
       </Shell>
     );
   }

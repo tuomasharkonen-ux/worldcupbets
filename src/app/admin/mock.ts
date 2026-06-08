@@ -102,7 +102,7 @@ function match(
 // + `betsByMatch`. We hand the preview the same inputs plus a fixed `now`, so the
 // rendering is faithful without any time-of-day flakiness.
 
-export type TodayVariant = 'betting' | 'allset' | 'settling' | 'recap' | 'upcoming' | 'noschedule';
+export type TodayVariant = 'betting' | 'allset' | 'settling' | 'recap' | 'recap-rough' | 'upcoming' | 'noschedule';
 
 export interface TodayScenario {
   state: 'betting' | 'allset' | 'settling';
@@ -129,9 +129,12 @@ function slateMatches(): MatchRow[] {
   ];
 }
 
-// `recap` and `noschedule` are handled directly in the preview (recap renders the
-// real <Recap> on MOCK_RECAP; noschedule is the empty state), so they never reach here.
-export function todayScenario(variant: Exclude<TodayVariant, 'noschedule' | 'recap'>): TodayScenario {
+// The `recap*` and `noschedule` variants are handled directly in the preview (recap
+// renders the real <Recap> on a mock; noschedule is the empty state), so they never
+// reach here.
+export function todayScenario(
+  variant: Exclude<TodayVariant, 'noschedule' | 'recap' | 'recap-rough'>,
+): TodayScenario {
   // `upcoming` — current slate is a rest day, so we've jumped to the next slate that
   // has fixtures. Fresh slip (every match needs a pick), kickoffs a couple of days out.
   if (variant === 'upcoming') {
@@ -274,6 +277,81 @@ export const MOCK_RECAP: RecapData = {
     { id: 'd', name: 'Aino', before: 120, after: 120, rankBefore: 5, rankAfter: 5, isYou: false },
   ],
   balance: 192,
+};
+
+// A rough night — the emotional opposite of MOCK_RECAP, and the half of the reveal
+// the happy-path mock never exercises. Covers: a VOID prop (rested player), a match
+// with NO bets ("No bets on this match."), a booking penalty (negative favorite →
+// danger styling), net-negative Coins (staked big, lost), and YOU dropping rank.
+// Math is internally consistent so the preview reads true:
+//   bet Points = 10 (one won outcome) ; favorites = −5 (booking) ; headline = 5.
+//   Coins = +5 winnings − 60 staked = −55 net.  after − before = +5 for every manager.
+export const MOCK_RECAP_ROUGH: RecapData = {
+  matchDay: 6,
+  matches: [
+    {
+      id: 'r-1',
+      home: 'Argentina',
+      away: 'Morocco',
+      homeCode: 'ARG',
+      awayCode: 'MAR',
+      homeScore: 0,
+      awayScore: 2,
+      staked: 50,
+      stakeMult: 2.0,
+      picks: [
+        { label: 'Outcome', detail: 'Argentina', result: 'lost', points: 0 },
+        { label: 'Score', detail: '2–1', result: 'lost', points: 0 },
+        // Player was rested — the prop voids rather than losing.
+        { label: 'First scorer', detail: 'L. Messi', result: 'void', points: 0 },
+      ],
+    },
+    {
+      id: 'r-2',
+      home: 'Germany',
+      away: 'Japan',
+      homeCode: 'GER',
+      awayCode: 'JPN',
+      homeScore: 1,
+      awayScore: 1,
+      staked: 0,
+      stakeMult: 1,
+      picks: [], // forgot to bet — exercises the "No bets on this match." row
+    },
+    {
+      id: 'r-3',
+      home: 'Portugal',
+      away: 'Croatia',
+      homeCode: 'POR',
+      awayCode: 'CRO',
+      homeScore: 1,
+      awayScore: 0,
+      staked: 10,
+      stakeMult: 1.25,
+      picks: [
+        { label: 'Outcome', detail: 'Portugal', result: 'won', points: 10 },
+        { label: 'Score', detail: '2–0', result: 'lost', points: 0 },
+      ],
+    },
+  ],
+  // Headline = bet Points (10) + favorites (−5) = 5.
+  pointsGained: 5,
+  favoriteItems: [
+    { kind: 'player', label: 'Luka Modrić', detail: 'Booked', points: -5 },
+  ],
+  coinItems: [
+    { label: 'Bet winnings', amount: 5 },
+    { label: 'Coins staked', amount: -60 },
+  ],
+  coinsGained: -55,
+  standings: [
+    { id: 'a', name: 'Semi', before: 295, after: 360, rankBefore: 2, rankAfter: 1, isYou: false },
+    { id: 'b', name: 'Janne', before: 268, after: 330, rankBefore: 3, rankAfter: 2, isYou: false },
+    { id: 'me', name: 'You', before: 300, after: 305, rankBefore: 1, rankAfter: 3, isYou: true },
+    { id: 'c', name: 'Pekka', before: 192, after: 200, rankBefore: 4, rankAfter: 4, isYou: false },
+    { id: 'd', name: 'Aino', before: 120, after: 122, rankBefore: 5, rankAfter: 5, isYou: false },
+  ],
+  balance: 30,
 };
 
 // ─── Bet slip (match detail) ─────────────────────────────────────────────────
