@@ -102,7 +102,7 @@ function settleBet(bet: Bet, input: SettleInput): BetUpdate {
     case 'carded':
       return settleCarded(bet, events, mult, config, appearances);
     default:
-      // stat_leader is settled in Phase 4 (Sofascore)
+      // Unknown/retired bet type — settle as a no-op void rather than throw.
       return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
   }
 }
@@ -114,13 +114,11 @@ function outcomeOf(home: number, away: number): 'home' | 'draw' | 'away' {
 }
 
 // The Glory multiplier applied to a winning bet: the knockout-stage multiplier
-// times the Coin stake multiplier, capped at config.stake.max_total_multiplier
-// (×3.0) so stacked bonuses can't cause runaway swings (GAME_DESIGN §5). The match
-// stake is paid either way (see `settle`); this multiplier is its upside, applied to
-// every *winning* pick. The goal-difference consolation is an independent rubric
-// bonus that the stake never amplifies.
-function cappedMult(stageMult: number, stakeMult: number, config: LeagueConfig): number {
-  return Math.min(stageMult * stakeMult, config.stake.max_total_multiplier);
+// times the Coin stake multiplier, uncapped (GAME_DESIGN §5). The match stake is
+// paid either way (see `settle`); this multiplier is its upside, applied to every
+// *winning* pick.
+function effMult(stageMult: number, stakeMult: number): number {
+  return stageMult * stakeMult;
 }
 
 function settleOutcome(
@@ -136,17 +134,15 @@ function settleOutcome(
     betId: bet.id,
     status: won ? 'won' : 'lost',
     pointsAwarded: won
-      ? Math.round(config.glory.outcome_correct * cappedMult(mult, bet.stake_mult, config))
+      ? Math.round(config.glory.outcome_correct * effMult(mult, bet.stake_mult))
       : 0,
     coinsAwarded: won ? config.coins.outcome : 0,
   };
 }
 
-// The exact-score bet carries three tiers (GAME_DESIGN §3):
-//   • exact scoreline        → the full exact bonus + the goal-difference bonus
-//   • right outcome + margin → just the goal-difference bonus (status stays 'lost')
-//   • otherwise              → nothing
-// The separate outcome bet independently scores the +10 for a correct result.
+// The exact-score bet is all-or-nothing (GAME_DESIGN §3): the exact scoreline scores
+// outcome + the exact bonus; anything else scores nothing. The separate outcome bet
+// independently scores the +10 for a correct result.
 function settleExactScore(
   bet: Bet,
   home: number,
@@ -155,32 +151,15 @@ function settleExactScore(
   config: LeagueConfig,
 ): BetUpdate {
   const sel = bet.selection as ExactScoreSelection;
-  const gd = config.glory.goal_difference ?? 0;
-
   const exact = sel.home === home && sel.away === away;
-  const marginRight =
-    outcomeOf(sel.home, sel.away) === outcomeOf(home, away) &&
-    sel.home - sel.away === home - away;
 
   if (exact) {
-    const basePoints = config.glory.outcome_correct + config.glory.exact_score_bonus + gd;
+    const basePoints = config.glory.outcome_correct + config.glory.exact_score_bonus;
     return {
       betId: bet.id,
       status: 'won',
-      pointsAwarded: Math.round(basePoints * cappedMult(mult, bet.stake_mult, config)),
+      pointsAwarded: Math.round(basePoints * effMult(mult, bet.stake_mult)),
       coinsAwarded: config.coins.exact,
-    };
-  }
-
-  // Right outcome + right margin but not exact: a consolation, not a hit. The bet
-  // "lost", and the goal-difference Glory uses only the stage multiplier — the stake
-  // never amplifies a losing bet.
-  if (marginRight) {
-    return {
-      betId: bet.id,
-      status: 'lost',
-      pointsAwarded: Math.round(gd * mult),
-      coinsAwarded: config.coins.goal_difference,
     };
   }
 
@@ -242,7 +221,7 @@ function settleScorerProp(
       : events.some(e => isScoringEvent(e) && e.footballer_id === pickId);
 
   const basePoints = (kind === 'first' ? config.glory.first_goalscorer : config.glory.anytime_scorer) ?? 0;
-  const points = won ? Math.round(basePoints * cappedMult(mult, bet.stake_mult, config)) : 0;
+  const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
 
   return propResult(bet, pickId, won, points, config.coins.prop, appearances);
 }
@@ -261,7 +240,7 @@ function settleCarded(
   );
 
   const basePoints = config.glory.carded ?? 0;
-  const points = won ? Math.round(basePoints * cappedMult(mult, bet.stake_mult, config)) : 0;
+  const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
 
   return propResult(bet, pickId, won, points, config.coins.prop, appearances);
 }

@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { CalendarDays, Clock, Lock, CircleDot, Ticket } from 'lucide-react';
-import { getSession } from '@/lib/session';
+import { getSession, requireOnboarded } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
@@ -31,6 +31,7 @@ type MatchRow = Match & { home_team: Team; away_team: Team };
 export default async function FixturesPage() {
   const session = await getSession();
   if (!session.managerId) redirect('/join');
+  await requireOnboarded(session.managerId);
 
   const { data: league } = await db
     .from('league')

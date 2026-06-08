@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import Link from 'next/link';
-import { Coins, Sparkles, Trophy, ChevronRight, ArrowRight, FastForward, ArrowUp, ArrowDown, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
+import { Coins, Sparkles, Trophy, ChevronRight, ArrowRight, FastForward, ArrowUp, ArrowDown, CheckCircle2, XCircle, MinusCircle, Star, Shield } from 'lucide-react';
 import { Flag } from '@/components/ui/flag';
 import { Button } from '@/components/ui/button';
 import { toFlagEmoji } from '@/lib/country-flags';
@@ -37,6 +37,15 @@ export interface RecapCoinItem {
   amount: number; // signed
 }
 
+// A favorite-team milestone or favorite-player match result that paid Points on this
+// slate (migration 009). `kind` picks the icon; `points` can be negative (a booking).
+export interface RecapFavoriteItem {
+  kind: 'player' | 'team';
+  label: string; // e.g. "Lionel Messi" or "Argentina"
+  detail: string; // e.g. "2 goals" or "Reached the quarter-final"
+  points: number;
+}
+
 export interface RecapStanding {
   id: string;
   name: string;
@@ -50,7 +59,9 @@ export interface RecapStanding {
 export interface RecapData {
   matchDay: number; // 1-based match-day number for this slate (see @/lib/matchday).
   matches: RecapMatch[];
-  pointsGained: number;
+  pointsGained: number; // headline total: bet Points + favorite (player + team) Points
+  // Favorite-pick Points earned on this slate, itemised. Empty when nothing landed.
+  favoriteItems: RecapFavoriteItem[];
   coinItems: RecapCoinItem[];
   coinsGained: number; // net signed
   standings: RecapStanding[];
@@ -303,6 +314,31 @@ export function Recap({ data }: { data: RecapData }) {
             <p className="text-glow mt-1 font-mono text-4xl font-bold tabular-nums text-points">
               +{pointsValue}
             </p>
+            {data.favoriteItems.length > 0 && (
+              <ul className="mt-4 space-y-1.5 border-t border-border pt-3 text-left">
+                {data.favoriteItems.map((it, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm">
+                    {it.kind === 'player' ? (
+                      <Star className="size-4 shrink-0 text-points" aria-hidden />
+                    ) : (
+                      <Shield className="size-4 shrink-0 text-primary-bright" aria-hidden />
+                    )}
+                    <span className="min-w-0 flex-1 truncate text-muted">
+                      <span className="font-semibold text-foreground">{it.label}</span>
+                      <span className="text-subtle"> · {it.detail}</span>
+                    </span>
+                    <span
+                      className={`shrink-0 text-right font-mono text-sm font-bold tabular-nums ${
+                        it.points >= 0 ? 'text-points' : 'text-danger'
+                      }`}
+                    >
+                      {it.points >= 0 ? `+${it.points}` : it.points}
+                      <span className="ml-0.5 text-[0.65rem] font-medium opacity-80">pts</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
 

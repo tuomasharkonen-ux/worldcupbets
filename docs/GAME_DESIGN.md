@@ -57,14 +57,14 @@ show an empty "No matches yet" state.
    loadout is frozen, even though later matches' bets are still open.
 3. **Settle** — once each morning the settlement job runs the closing slate: awards
    Glory and Coins, resolves stakes, applies active power-ups, then a **day-close**
-   step grants slate-scoped bonuses (participation, clean-slate, streak, interest)
+   step grants slate-scoped bonuses (participation, clean-slate, streak)
    and stamps the slate so the **morning recap** can render.
 
 ### Bet-locking nuance (player props)
 
 Starting lineups are only confirmed ~20–40 min before kickoff. So:
 
-- Props that need a specific player (First Goalscorer, Stat Leader) let you pick **anyone in the 26-man squad**, not just the starting XI. If your pick doesn't play at all, that prop is **void** (stake refunded, no Glory).
+- Props that need a specific player (First/Anytime Goalscorer, Carded) let you pick **anyone in the 26-man squad**, not just the starting XI. If your pick doesn't play at all, that prop is **void** (stake refunded, no Glory).
 - This keeps betting open early without punishing players for unknown lineups.
 
 ---
@@ -76,34 +76,31 @@ Starting lineups are only confirmed ~20–40 min before kickoff. So:
 | Bet | Condition | Glory |
 | --- | --- | --- |
 | **Outcome** | Correct Home win / Draw / Away win | **+10 GP** |
-| **Goal difference** | Right outcome *and* right margin, but not exact score | **+5 GP** (bonus) |
 | **Exact score** | Exact final scoreline correct | **+25 GP** (bonus, on top of outcome) |
 
-Worked example: you predict **2–1 home**. Final is **3–1 home** → outcome ✅ (+10), margin ❌, exact ❌ = **10 GP**. Final is **3–2 home** → outcome ✅ (+10) + margin ✅ (+5) = **15 GP**. Final is **2–1 home** → +10 +5 +25 = **40 GP**.
+Exact score is all-or-nothing — there is no goal-difference consolation. Worked example: you predict **2–1 home**. Final is **3–1 home** → outcome ✅ (+10), exact ❌ = **10 GP**. Final is **2–1 home** → outcome ✅ (+10) + exact ✅ (+25) = **35 GP**.
 
-### Player props — optional, pick up to **2 per match** (raisable via upgrade)
+### Player props — optional, one per match
 
 | Prop | Condition | Glory |
 | --- | --- | --- |
 | **First Goalscorer** | Your player scores the match's first goal | **+20 GP** |
-| **Anytime Goalscorer** | Your player scores at any point | **+8 GP** |
-| **Carded** | Your player gets a yellow or red | **+6 GP** |
-| **Stat Leader** | Your player leads the match in a chosen stat (passes / shots / touches) | **+15 GP** |
-
-> "Touches" depends on the Sofascore feed; "passes" and "shots" are safer. Offer all three but flag touches as "may void if stat unavailable."
+| **Anytime Goalscorer** | Your player scores at any point | **+10 GP** |
+| **Carded** | Your player gets a yellow or red | **+10 GP** |
 
 ### Knockout multipliers (catch-up mechanic)
 
-All Glory from a match is multiplied by its stage factor. This keeps a trailing player mathematically alive to the end.
+All Glory from a match is multiplied by its stage factor — amplification kicks in only from the quarter-finals, so the long group stage stays flat and the knockouts swing harder. This keeps a trailing player mathematically alive to the end.
 
 | Stage | Multiplier |
 | --- | --- |
 | Group stage | ×1.0 |
-| Round of 32 | ×1.2 |
-| Round of 16 | ×1.4 |
-| Quarter-final | ×1.6 |
-| Semi-final | ×1.8 |
-| 3rd place / Final | ×2.0 |
+| Round of 32 | ×1.0 |
+| Round of 16 | ×1.0 |
+| Quarter-final | ×1.5 |
+| Semi-final | ×1.75 |
+| 3rd place | ×1.75 |
+| Final | ×2.0 |
 
 ---
 
@@ -116,7 +113,6 @@ Income is tied to **daily engagement and skill**, awarded at morning settlement.
 | --- | --- | --- |
 | **Daily participation** — submit a complete slip for *every* match on the slate | **+10¢** | per slate (day-close) |
 | **Correct outcome** | **+5¢** each | per bet |
-| **Goal-difference correct** | **+3¢** | per bet |
 | **Exact score** | **+10¢** bonus | per bet |
 | **Correct prop** | **+4¢** each | per bet |
 | **Clean slate** — every outcome on the slate correct | **+15¢** | per slate (day-close) |
@@ -146,18 +142,15 @@ This is what makes scoring "hybrid" rather than pure-rubric. Before a match lock
 
 - **One stake per match**, not per bet — its own section at the bottom of the slip, applying to the outcome, exact score, and any player prop together. Framed to players as **"Add a multiplier"** (not "stake"); the slip ends with a live **Potential max** counter showing best-case Points across the current picks, updating as picks and the multiplier change.
 - Stake cap starts at **50¢** per match (raisable via upgrade).
-- Stake multipliers stack with knockout multipliers but the **total multiplier per pick is capped at ×3.0** to prevent runaway swings.
+- Stake multipliers stack with knockout multipliers, **uncapped** — a Final (×2.0) with a Large stake (×2.0) compounds to ×4.0.
 - Staking is opt-in: a player can ignore it entirely and still compete on the fixed rubric.
 
 **Implementation rulings:**
 - The stake's multiplier amplifies the Glory of **each `won` pick** on the match, via
-  the capped stage × stake multiplier.
+  the stage × stake multiplier.
 - The staked Coins are spent **either way** — one negative `stake_spend` per
   manager+match at settlement, regardless of win/loss. There is no separate forfeit
   and no "keep on win"; the cost is the price of the multiplier.
-- The **goal-difference consolation** on a near-miss exact-score bet is a separate
-  rubric bonus the stake never amplifies (the exact bet itself still counts as a
-  miss), but the match stake is spent regardless like any other.
 - Stakes are recorded at submission but **charged at settlement** (no upfront Coin
   hold); the submission balance check is a point-in-time guard against over-committing
   across the slate's open matches. See `DATA_MODEL.md`.
@@ -179,21 +172,18 @@ The roguelike "build". Four paths; Coin Magnet and Bigger Wallet are **repeatabl
 | Name | Cost | Effect | Path |
 | --- | --- | --- | --- |
 | **Coin Magnet** | 100¢ | +10% to all Coin income, permanently. Repeatable ×3 (10/20/30%). | 💰 Economy |
-| **The Vault** | 90¢ | Unspent Coins earn **+5% daily interest** at day-close (rounded down). | 💰 Economy |
 | **Bigger Wallet** | 60¢ | Stake cap +25¢. Repeatable (50→75→100→…). | 🎲 High-roller |
-| **Hot Hand** | 70¢ | Correct-outcome **streak** across consecutive slates pays escalating Coins: +2¢ at a 2-day streak, +4¢ at 3, +6¢ at 4+ (resets on a wrong-outcome day). | 🔥 Streak |
-| **Extra Prop Slot** | 80¢ | Bet on 3 props per match instead of 2. | 📊 Volume |
+| **Hot Hand** | 70¢ | Correct-outcome **streak** across consecutive slates pays Coins **linearly: +1¢ per consecutive day** (day 2 → +2¢, day 3 → +3¢, …; resets on a wrong-outcome day). | 🔥 Streak |
+| **Extra Prop Slot** | 80¢ | Bet on 2 props per match instead of 1. | 📊 Volume |
 | **Accumulator** | 120¢ | Once per slate, declare an **all-outcomes parlay**: if *every* outcome on the slate hits, earn a big flat Glory bonus (≈ +30 GP × stage). All-or-nothing; locks at first kickoff. | 📊 Volume |
 
 ### Power-ups — one-shot, self-buff (Phase 3)
 
-Attached to a match/slate, consumed at settlement, applied *before* the ×3 cap.
-None touch another manager.
+Attached to a match/slate, consumed at settlement. None touch another manager.
 
 | Name | Cost | Effect |
 | --- | --- | --- |
-| **Double Down** | 40¢ | ×2 Glory on one chosen bet this slate (respects the ×3 cap). |
-| **Insurance** | 25¢ | If your exact-score bet misses by one total goal, you still get the goal-difference bonus. |
+| **Double Down** | 40¢ | ×2 Glory on one chosen bet this slate. |
 | **Hedge** | 35¢ | Submit two outcomes for one match; if either hits you score the outcome (exact-score bonus disabled for that match). |
 | **Banker** | 20¢ | Nominate one match as your banker: +50% Glory if the slip fully hits, −50% if it fully busts. |
 
@@ -225,7 +215,7 @@ Any sabotage aimed at the **current Glory leader** costs **30% less**. Everyone 
 The World Cup's own structure provides the escalation; the design leans into it.
 
 - **Group stage (72 matches, ×1.0 Glory).** High volume. The economy-building phase: experiment with bets, accumulate Coins, buy early upgrades, scout rivals with Crystal Ball. Mistakes are cheap.
-- **Knockouts (R32 → Final, 32 matches, ×1.2 → ×2.0).** Fewer matches, rising stakes. The hoard-or-spend tension peaks — do you blow your Coins on sabotage now or save for a Double Down on the Final? Sabotage gets vicious.
+- **Knockouts (R32 → Final, 32 matches, ×1.0 → ×2.0; amplified from the QF).** Fewer matches, rising stakes. The hoard-or-spend tension peaks — do you blow your Coins on sabotage now or save for a Double Down on the Final? Sabotage gets vicious.
 - **Final weekend (×2.0).** Last chance to overtake. A trailing player who's hoarded Coins can make a real run with stacked stakes and Double Downs.
 
 ---
@@ -235,10 +225,9 @@ The World Cup's own structure provides the escalation; the design leans into it.
 These need to be explicit in code so settlement is deterministic:
 
 - **Void props** (player didn't play): stake refunded, 0 Glory, no Coin penalty.
-- **Stat unavailable** (e.g. touches feed missing for a match): Stat Leader prop voids, stake refunded.
 - **Abandoned / postponed match:** all bets void, stakes refunded; re-open if rescheduled.
 - **Own goals:** count toward the score, but the scorer is **not** credited for Goalscorer props (matches common bookmaker convention).
-- **Penalty shootouts (knockouts):** do not change the "result" for scoring — the match is scored on the 90+ET scoreline as a draw for Outcome/Exact purposes, unless you decide otherwise. *(Decision point — flag for the league.)*
+- **Penalty shootouts (knockouts):** do not change the "result" for scoring — the match is scored on the 90+ET scoreline as a draw for Outcome/Exact purposes, unless you decide otherwise. *(Decision point — flag for the league.)* Note the **favorite-team champion/3rd-place milestones** (§10) are the exception: they use the true tournament winner from `matches.winner_team_id` (which reflects the shootout), not the scoreline.
 - **Settlement is idempotent:** re-running settlement on an already-settled match must not double-pay. Enforced via `matches.settled_at` + the append-only ledger.
 
 ---
@@ -246,3 +235,39 @@ These need to be explicit in code so settlement is deterministic:
 ## 9. Win condition
 
 Most **Glory** after the Final is settled wins. Suggested tiebreaker order: (1) most exact-score hits, (2) most correct props, (3) a sudden-death bet on the Final's total goals decided at tournament start.
+
+---
+
+## 10. Favorites — your champion & favorite player (first-login picks)
+
+On first login, before reaching the app, every manager locks in two season-long picks (migration `009`). Both are **immutable for the whole tournament** — the onboarding server action refuses to overwrite them once set. The picker shows the exact Point rewards for each pick and updates live as you browse teams.
+
+### Favorite team — the title bet, scored on an odds-weighted ladder
+
+Your team is effectively a bet on who lifts the trophy, but it pays out **progressively** as they advance rather than all-or-nothing at the Final — so there's no anticlimactic last-match leaderboard flip, and backing a team that goes deep is rewarded even if they don't win.
+
+Each milestone pays **base Points × the team's underdog multiplier**:
+
+| Milestone | Base | When |
+| --- | --- | --- |
+| Out of the group (reach R32) | 10 | fixture exists |
+| Reach R16 | 20 | fixture exists |
+| Reach QF | 35 | fixture exists |
+| Reach SF | 55 | fixture exists |
+| 3rd-place playoff win | 40 | finished, won |
+| Reach Final (runner-up) | 75 | fixture exists |
+| **Champion** | **90** | final finished, won |
+
+A champion banks every rung on the title path (≈285 base before multiplier); a runner-up ≈195. Reach-rungs fire as soon as the knockout fixture appears (football-data only assigns a knockout slot once a team has qualified); champion/3rd resolve on a finished match via `matches.winner_team_id`.
+
+**Underdog multiplier.** Derived from the team's pre-tournament decimal championship odds (`teams.champion_odds`): `mult = clamp(round½(√(odds / base_odds)), min, max)` with `base_odds` 5.5, clamp 1.0–5.0. The √ dampens the spread (a 100× longshot pays ~10×, capped at 5×) so a true minnow can't break the leaderboard, while the top favorites sit at ×1.0. Backing a dark horse pays more at **every** stage it survives — e.g. a ×3.5 side reaching the SF earns ~420 vs a favorite's ~120.
+
+### Favorite player
+
+One player from your chosen team's squad. Per match they feature in: **+15 Points per goal** (open-play or penalty; own goals never count), and **a single −5 Points if booked** (one penalty per match regardless of how many cards). Pure season-long trickle that keeps the favorites mechanic alive between the team's milestone moments.
+
+### Settlement & surfacing
+
+- Favorite-player Points settle inside the per-match settle job (the favorite's match now triggers event ingestion even with no prop bet on it). Favorite-team milestones settle in a dedicated step that runs every cron tick, independent of which matches just finished.
+- Both are idempotent Glory ledger streams — `fav_player` (`ref_type=match`) and `team_<milestone>` (`ref_type=season`, `ref_id=WC2026`).
+- Shown on **/profile** (locked picks + the team's full ladder + Points earned so far). The daily **/today recap** itemises any favorite Points earned that slate under the points odometer and folds them into the headline total and the standings before/after. Standings/leaderboard reflect the Points automatically since they recompute from the ledger.

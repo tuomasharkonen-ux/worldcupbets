@@ -3,13 +3,14 @@
 import { useState } from 'react';
 import {
   Home, CheckCircle2, Loader2, Coffee, Sparkles,
-  Ticket, Trophy, CalendarDays, CalendarClock, CalendarX, KeyRound, AlertCircle, Palette, FlaskConical, UserCircle,
+  Ticket, Trophy, CalendarDays, CalendarClock, CalendarX, KeyRound, AlertCircle, Palette, FlaskConical, UserCircle, Star,
 } from 'lucide-react';
 import { TodayScreen } from './previews/TodayScreen';
 import { FixturesScreen } from './previews/FixturesScreen';
 import { LeaderboardScreen } from './previews/LeaderboardScreen';
 import { MatchScreen } from './previews/MatchScreen';
 import { JoinScreen } from './previews/JoinScreen';
+import { OnboardingScreen } from './previews/OnboardingScreen';
 import { ProfileScreen } from './previews/ProfileScreen';
 import { DesignSystem } from './previews/DesignSystem';
 
@@ -59,6 +60,7 @@ const GROUPS: Group[] = [
     views: [
       { key: 'join', label: 'Join', Icon: KeyRound, render: () => <JoinScreen /> },
       { key: 'join-error', label: 'Join (error)', Icon: AlertCircle, render: () => <JoinScreen error /> },
+      { key: 'onboarding', label: 'Favorites picker', Icon: Star, render: () => <OnboardingScreen /> },
       { key: 'profile', label: 'Profile', Icon: UserCircle, render: () => <ProfileScreen /> },
     ],
   },

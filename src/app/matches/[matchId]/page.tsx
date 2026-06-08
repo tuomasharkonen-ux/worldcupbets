@@ -1,7 +1,7 @@
 import { redirect, notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Lock, CircleDot, CheckCircle2, XCircle, MinusCircle } from 'lucide-react';
-import { getSession } from '@/lib/session';
+import { getSession, requireOnboarded } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
@@ -54,6 +54,7 @@ export default async function MatchPage({
 
   const session = await getSession();
   if (!session.managerId) redirect('/join');
+  await requireOnboarded(session.managerId);
 
   const { data: match } = await db
     .from('matches')
@@ -90,10 +91,8 @@ export default async function MatchPage({
   const glory = league?.config.glory;
   const scoring = {
     stageMult: match.glory_multiplier,
-    maxTotalMult: league?.config.stake.max_total_multiplier ?? 3.0,
     outcome: glory?.outcome_correct ?? 0,
     exactBonus: glory?.exact_score_bonus ?? 0,
-    goalDiff: glory?.goal_difference ?? 0,
     props: {
       first_scorer: glory?.first_goalscorer ?? 0,
       anytime_scorer: glory?.anytime_scorer ?? 0,

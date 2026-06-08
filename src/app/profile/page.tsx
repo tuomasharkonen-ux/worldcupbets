@@ -1,12 +1,15 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { ArrowLeft, Trophy, Coins, UserRound, Lock, LogOut, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { getSession } from '@/lib/session';
+import { ArrowLeft, Trophy, Coins, UserRound, Lock, LogOut, AlertCircle, CheckCircle2, Star, Shield } from 'lucide-react';
+import { getSession, requireOnboarded } from '@/lib/session';
 import { signOut } from '@/app/actions';
 import { db } from '@/lib/supabase';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Flag } from '@/components/ui/flag';
+import { ladderBreakdown } from '@/settlement/favorites';
+import type { FavoritesConfig } from '@/types/db';
 import { updateProfile, changePin } from './actions';
 import { AVATAR_CHOICES } from './avatars';
 
@@ -32,6 +35,7 @@ export default async function ProfilePage({
 }) {
   const session = await getSession();
   if (!session.managerId) redirect('/join');
+  await requireOnboarded(session.managerId);
 
   const { error, saved } = await searchParams;
   const errorMsg = error ? (ERROR_MESSAGES[error] ?? 'Something went wrong.') : null;
@@ -39,7 +43,7 @@ export default async function ProfilePage({
 
   const { data } = await db
     .from('managers')
-    .select('display_name, avatar_url, glory, coins, joined_at')
+    .select('display_name, avatar_url, glory, coins, joined_at, favorite_team_id, favorite_footballer_id')
     .eq('id', session.managerId)
     .single();
 
@@ -49,9 +53,18 @@ export default async function ProfilePage({
     glory: number;
     coins: number;
     joined_at: string;
+    favorite_team_id: string | null;
+    favorite_footballer_id: string | null;
   } | null;
 
   if (!manager) redirect('/join');
+
+  // Locked first-login picks (migration 009) + the bonus ladder for the chosen team.
+  const favorites = await loadFavorites(
+    session.managerId,
+    manager.favorite_team_id,
+    manager.favorite_footballer_id,
+  );
 
   const avatar = manager.avatar_url ?? '⚽';
   const joined = new Date(manager.joined_at).toLocaleDateString('en-GB', {
@@ -122,6 +135,67 @@ export default async function ProfilePage({
           </div>
         </div>
       </Card>
+
+      {/* Locked tournament picks */}
+      {favorites.team && (
+        <Card variant="glass" padding="lg" className="space-y-4">
+          <div className="flex items-center justify-between">
+            <CardTitle>Your tournament picks</CardTitle>
+            <span className="flex items-center gap-1 text-xs text-subtle">
+              <Lock className="size-3.5" aria-hidden />
+              Locked
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5 rounded-2xl bg-surface-2 px-4 py-3">
+              <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+                <Shield className="size-3.5" aria-hidden />
+                Champion pick
+              </p>
+              <p className="flex items-center gap-2 font-display font-bold text-foreground">
+                <Flag name={favorites.team.name} countryCode={favorites.team.countryCode} size="md" />
+                <span className="truncate">{favorites.team.name}</span>
+              </p>
+            </div>
+            <div className="space-y-1.5 rounded-2xl bg-surface-2 px-4 py-3">
+              <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+                <Star className="size-3.5" aria-hidden />
+                Favorite player
+              </p>
+              <p className="truncate font-display font-bold text-foreground">
+                {favorites.player ? favorites.player.name : '—'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between rounded-2xl bg-surface-2 px-4 py-3">
+            <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+              <Trophy className="size-3.5" aria-hidden />
+              Earned from your picks
+            </p>
+            <p className="font-display text-xl font-bold text-points">{favorites.earned} pts</p>
+          </div>
+
+          {favorites.team.breakdown && (
+            <div className="space-y-1">
+              {[...favorites.team.breakdown.rungs]
+                .sort((a, b) => RUNG_ORDER.indexOf(a.key) - RUNG_ORDER.indexOf(b.key))
+                .map(r => (
+                  <div
+                    key={r.key}
+                    className={`flex items-center justify-between text-sm ${
+                      r.key === 'champion' ? 'font-semibold text-points' : 'text-muted'
+                    }`}
+                  >
+                    <span>{r.label}</span>
+                    <span className="font-mono">+{r.points} pts</span>
+                  </div>
+                ))}
+            </div>
+          )}
+        </Card>
+      )}
 
       {/* Edit name + avatar */}
       <Card variant="glass" padding="lg" className="space-y-5">
@@ -231,4 +305,50 @@ export default async function ProfilePage({
       </form>
     </main>
   );
+}
+
+// True bracket order for displaying the ladder (3rd place before the final).
+const RUNG_ORDER = ['r32', 'r16', 'qf', 'sf', 'third', 'final', 'champion'];
+
+// Resolve the locked picks into display data: the team (with its bonus ladder), the
+// player, and the Points earned from both so far (favorite-player + team-milestone
+// ledger entries).
+async function loadFavorites(
+  managerId: string,
+  teamId: string | null,
+  footballerId: string | null,
+) {
+  if (!teamId) return { team: null, player: null, earned: 0 } as const;
+
+  const [{ data: league }, { data: team }, { data: player }, { data: ledger }] = await Promise.all([
+    db.from('league').select('config').eq('id', 1).single(),
+    db.from('teams').select('name, country_code, champion_odds').eq('id', teamId).maybeSingle(),
+    footballerId
+      ? db.from('footballers').select('name, squad_number').eq('id', footballerId).maybeSingle()
+      : Promise.resolve({ data: null }),
+    db
+      .from('ledger')
+      .select('amount, reason')
+      .eq('manager_id', managerId)
+      .eq('currency', 'glory'),
+  ]);
+
+  const fav = (league?.config as { favorites?: FavoritesConfig } | undefined)?.favorites;
+  const earned = ((ledger ?? []) as { amount: number; reason: string }[])
+    .filter(r => r.reason === 'fav_player' || r.reason.startsWith('team_'))
+    .reduce((s, r) => s + r.amount, 0);
+
+  return {
+    team: team
+      ? {
+          name: team.name as string,
+          countryCode: team.country_code as string,
+          breakdown: fav ? ladderBreakdown(team.champion_odds as number | null, fav) : null,
+        }
+      : null,
+    player: player
+      ? { name: player.name as string, number: (player.squad_number as number | null) ?? null }
+      : null,
+    earned,
+  } as const;
 }

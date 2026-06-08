@@ -4,7 +4,7 @@
 export type Phase = 'group' | 'knockout' | 'finished';
 export type MatchStage = 'group' | 'r32' | 'r16' | 'qf' | 'sf' | 'third' | 'final';
 export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'void';
-export type BetType = 'outcome' | 'exact_score' | 'first_scorer' | 'anytime_scorer' | 'carded' | 'stat_leader';
+export type BetType = 'outcome' | 'exact_score' | 'first_scorer' | 'anytime_scorer' | 'carded';
 export type BetStatus = 'pending' | 'won' | 'lost' | 'void';
 export type Currency = 'glory' | 'coins';
 export type ItemKind = 'powerup' | 'upgrade' | 'sabotage' | 'counter';
@@ -23,15 +23,11 @@ export interface LeagueConfig {
   glory: {
     outcome_correct: number;
     exact_score_bonus: number;
-    // Goal-difference bonus (right outcome + right margin, not exact). Added in
-    // migration 003; optional so older configs still type-check (engine falls back to 0).
-    goal_difference?: number;
     // Player props (Phase 2). Optional so v1 configs still type-check; the
     // settlement engine falls back to 0 when a value is absent.
     first_goalscorer?: number;
     anytime_scorer?: number;
     carded?: number;
-    stat_leader?: number;
   };
   // Coin income (GAME_DESIGN §4): per-bet keys (migration 003) + slate-scoped
   // day-close keys (migration 005).
@@ -39,15 +35,14 @@ export interface LeagueConfig {
     starting_balance: number;
     // per bet
     outcome: number;
-    goal_difference: number;
     exact: number;
     prop: number;
     // per slate, granted at day-close (slice 3)
     participation?: number;
     clean_slate?: number;
-    // streak / interest payouts read by the slice-4 upgrades (Hot Hand / Vault)
-    streak_bonus?: Record<string, number>;
-    interest_rate?: number;
+    // Linear streak reward: this many Coins per consecutive qualifying day, read by
+    // the slice-4 Hot Hand payout (e.g. 1 → +1¢ on a 1-day streak, +2¢ on day 2…).
+    streak_bonus_per_day?: number;
   };
   // Daily-loop config (migration 005). Optional so pre-005 configs still type-check;
   // callers fall back to the 09:00 default.
@@ -60,13 +55,40 @@ export interface LeagueConfig {
     tiers: { coins: number; mult: number }[];
     // Per-bet stake ceiling in Coins (raisable via the Bigger Wallet upgrade).
     cap_coins: number;
-    // Hard cap on the combined stage × stake multiplier the engine applies (×3.0).
-    max_total_multiplier: number;
   };
   glory_multipliers: Record<MatchStage, number>;
   // Max players allowed to join the league (migration 006; was a hardcoded 5).
   // Optional so pre-006 configs still type-check; callers fall back to a default.
   max_managers?: number;
+  // Favorite team + player scoring (migration 009). Optional so pre-009 configs
+  // still type-check; the favorites settlement no-ops when absent.
+  favorites?: FavoritesConfig;
+}
+
+// Tuning for the favorite-team advancement ladder and favorite-player rewards
+// (migration 009). See src/settlement/favorites.ts for how these are applied.
+export interface FavoritesConfig {
+  // The top favorite's decimal odds → multiplier 1.0. Longer odds scale up from here.
+  base_odds: number;
+  // Clamp on the derived underdog multiplier.
+  min_mult: number;
+  max_mult: number;
+  // Base Points per advancement milestone (before the team's odds multiplier). Each
+  // is awarded once: reach-stage rungs on qualifying, champion/third on winning the
+  // final / third-place playoff.
+  ladder: {
+    r32: number;
+    r16: number;
+    qf: number;
+    sf: number;
+    third: number;
+    final: number;
+    champion: number;
+  };
+  // Flat (un-multiplied) favorite-player rewards: per goal scored, and a one-off
+  // per-match penalty when booked (negative).
+  player_goal: number;
+  player_card: number;
 }
 
 export interface Manager {
@@ -84,6 +106,12 @@ export interface Manager {
   // timestamp. Reset on a successful login. See src/app/join/actions.ts.
   failed_pin_attempts: number;
   pin_locked_until: string | null;
+  // First-login picks (migration 009), locked for the whole tournament. Null until
+  // onboarding is completed; onboarding_completed_at both gates the flow and locks
+  // the picks (the server action refuses to overwrite a set timestamp).
+  favorite_team_id: string | null;
+  favorite_footballer_id: string | null;
+  onboarding_completed_at: string | null;
 }
 
 // Per-manager scratch state (migration 005), updated at day-close. All fields
@@ -103,6 +131,9 @@ export interface Team {
   flag_url: string | null;
   fd_team_id: number | null;
   sofa_team_id: number | null;
+  // Pre-tournament decimal championship odds (migration 009). Drives the favorite-team
+  // underdog multiplier. Null until seeded.
+  champion_odds: number | null;
 }
 
 export interface Footballer {
@@ -130,6 +161,9 @@ export interface Match {
   away_score: number | null;
   glory_multiplier: number;
   settled_at: string | null;
+  // The actual winner (migration 009) — set for finished knockouts, where a penalty
+  // shootout can leave the scoreline level. Null for group games and draws.
+  winner_team_id: string | null;
 }
 
 export interface MatchEvent {

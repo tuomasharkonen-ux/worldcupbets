@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CalendarDays, Clock, Lock, CircleDot, CheckCircle2, Ticket, Loader2, Coffee, Pencil } from 'lucide-react';
+import { CalendarDays, Clock, Lock, CircleDot, CheckCircle2, Ticket, Loader2, Coffee, Pencil, Eye } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { Recap } from '@/app/today/Recap';
 import { ShareBetsButton } from '@/app/today/ShareBetsButton';
 import { slateLabel } from '@/lib/slate';
 import { buildSlateShareText } from '@/lib/share';
-import type { Bet, ExactScoreSelection, OutcomeSelection } from '@/types/db';
+import type { Bet, ExactScoreSelection, FootballerSelection, OutcomeSelection } from '@/types/db';
 import { ScreenFrame } from './ScreenFrame';
 import { MOCK_RECAP, todayScenario, type MatchRow, type TodayVariant } from '../mock';
 
@@ -31,6 +31,10 @@ const PROP_LABEL: Record<string, string> = {
   anytime_scorer: 'Anytime scorer',
   carded: 'Booked',
 };
+
+// The mock slate's lone prop pick is on footballer 'p-x' (see mock.ts); name it so the
+// all-set preview reads like the real page, which resolves names from the DB.
+const PROP_PLAYER_NAME = new Map<string, string>([['p-x', 'A. Striker']]);
 
 function outcomeLabel(result: string, home: string, away: string): string {
   return result === 'home' ? home : result === 'away' ? away : 'Draw';
@@ -128,6 +132,64 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
     state === 'allset'
       ? buildSlateShareText(matchDay, members, betsByMatch, new Map([['p-x', 'A. Striker']]))
       : null;
+
+  // Mirrors the real /today all-set row: flags flanking the called scoreline, plus a
+  // real Edit button. Group label and the open/locked chip are dropped as noise.
+  function AllSetRow({ m }: { m: MatchRow }) {
+    const locked = m.status !== 'scheduled' || now >= new Date(m.kickoff_at);
+    const bs: Bet[] = betsByMatch.get(m.id) ?? [];
+    const outcome = bs.find(b => b.bet_type === 'outcome')!;
+    const exact = bs.find(b => b.bet_type === 'exact_score')!;
+    const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+    const ex = exact.selection as ExactScoreSelection;
+    const mult = outcome.stake_mult; // one stake/multiplier per match slip
+    const propPlayer = prop ? PROP_PLAYER_NAME.get((prop.selection as FootballerSelection).footballer_id) : null;
+
+    return (
+      <div className="glass flex flex-col gap-3 rounded-2xl px-4 py-3.5">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className="flex min-w-0 items-center justify-end gap-2 font-display font-semibold text-foreground">
+            <span className="truncate">{m.home_team.name}</span>
+            <Flag name={m.home_team.name} countryCode={m.home_team.country_code} size="sm" />
+          </span>
+          <span className="rounded-lg bg-surface-2 px-2.5 py-1 font-mono text-base font-bold tabular-nums text-foreground">
+            {ex.home}<span className="px-0.5 text-subtle">–</span>{ex.away}
+          </span>
+          <span className="flex min-w-0 items-center gap-2 font-display font-semibold text-foreground">
+            <Flag name={m.away_team.name} countryCode={m.away_team.country_code} size="sm" />
+            <span className="truncate">{m.away_team.name}</span>
+          </span>
+        </div>
+
+        {prop && (
+          <div className="flex items-center justify-center gap-1.5 text-xs text-muted">
+            <span className="text-subtle">{PROP_LABEL[prop.bet_type]}:</span>
+            <span className="font-medium text-foreground">{propPlayer ?? 'Unknown'}</span>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <span className="flex items-center gap-1.5">
+              <Clock className="size-4" aria-hidden />
+              {formatKickoff(m.kickoff_at)}
+            </span>
+            <span aria-hidden className="text-subtle">·</span>
+            <span className="text-foreground">
+              {outcomeLabel((outcome.selection as OutcomeSelection).result, m.home_team.name, m.away_team.name)} to win
+            </span>
+            {mult > 1 && <Badge variant="points" size="sm">×{mult}</Badge>}
+          </div>
+          <Button asChild size="sm" variant="glass" className="shrink-0">
+            <Link href="#">
+              {locked ? <Eye aria-hidden /> : <Pencil aria-hidden />}
+              {locked ? 'View result' : 'Edit bet'}
+            </Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   function MatchRowInner({ m, editable }: { m: MatchRow; editable: boolean }) {
     const locked = m.status !== 'scheduled' || now >= new Date(m.kickoff_at);
@@ -228,14 +290,11 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
 
       {state === 'allset' ? (
         <div className="space-y-2.5">
+          <h2 className="px-1 text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
+            My bets
+          </h2>
           {members.map((m: MatchRow) => (
-            <Link
-              key={m.id}
-              href="#"
-              className="glass group flex flex-col gap-3 rounded-2xl px-4 py-3.5 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-border-strong"
-            >
-              <MatchRowInner m={m} editable />
-            </Link>
+            <AllSetRow key={m.id} m={m} />
           ))}
         </div>
       ) : (

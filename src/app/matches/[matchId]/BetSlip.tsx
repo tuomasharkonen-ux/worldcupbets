@@ -80,10 +80,8 @@ interface Props {
   // values are pre-multiplier; the counter applies the stage × stake multiplier.
   scoring: {
     stageMult: number;
-    maxTotalMult: number;
     outcome: number;
     exactBonus: number;
-    goalDiff: number;
     props: Record<PropType, number>;
   };
   existing: {
@@ -170,13 +168,13 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
       : `You picked ${outcome === 'home' ? homeTeam : awayTeam} to win — the exact score must show them ahead.`
     : null;
 
-  // Best-case Points if every current pick lands, with the stake multiplier applied
-  // (capped with the stage multiplier, rounded per pick to match the engine).
-  const effMult = Math.min(scoring.stageMult * stakeMult, scoring.maxTotalMult);
+  // Best-case Points if every current pick lands, with the stage × stake multiplier
+  // applied (uncapped, rounded per pick to match the engine).
+  const effMult = scoring.stageMult * stakeMult;
   const capPts = (base: number) => Math.round(base * effMult);
   const maxPoints =
     (outcome !== '' ? capPts(scoring.outcome) : 0) +
-    (hasExact ? capPts(scoring.outcome + scoring.exactBonus + scoring.goalDiff) : 0) +
+    (hasExact ? capPts(scoring.outcome + scoring.exactBonus) : 0) +
     (propType ? capPts(scoring.props[propType]) : 0);
   const hasPicks = outcome !== '' || hasExact || propType != null;
 

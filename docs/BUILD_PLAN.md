@@ -16,6 +16,7 @@ Build order is deliberately **vertical then horizontal**: get one thin slice wor
 | 1 — Core betting loop (MVP) | ✅ Done |
 | 2 — Player props | ✅ Done |
 | 3 — The Daily Game: coins, staking, shop & daily loop | 🟡 In progress (slices 1–3 built: coins, staking, daily slate `/today` with four states + animated morning recap + day-close grants; shop slices 4–5 not built) |
+| 3.5 — Favorites: champion + favorite-player picks | ✅ Done (migration `009` applied; first-login onboarding, odds-weighted advancement ladder + favorite-player scoring, 19 unit tests) |
 | 4 — Stat Leader prop | ⬜ Not started |
 | 5 — Shop | ⬜ Not started |
 | 6 — Draft / auction | ⬜ Not started |
@@ -104,12 +105,11 @@ post-kickoff without blocking launch — upgrades are the spine.
 2. ✅ **Staking** — per-bet stake widget (No stake / 10¢ / 25¢ / 50¢, chips gated by
    `cap_coins` + balance) on the bet slip writing `stake_coins`/`stake_mult`; tier
    costs + cap live in `league.config.stake` (`tiers` + `cap_coins`). The engine
-   amplifies a **won** bet's Glory by the combined stage × stake multiplier, **capped
-   at ×3.0** (`max_total_multiplier`), and forfeits the staked Coins on a **miss** via
+   amplifies a **won** bet's Glory by the combined stage × stake multiplier
+   (**uncapped**), and forfeits the staked Coins on a **miss** via
    a negative `stake_loss` ledger entry (no Glory penalty). Settle-time model: a
-   **void** leaves the stake untouched (nothing was held), a **win** keeps the Coins,
-   and the goal-difference consolation is an independent rubric bonus the stake never
-   amplifies. Submission validates each stake against the tiers + cap and the slip
+   **void** leaves the stake untouched (nothing was held), a **win** keeps the Coins.
+   Submission validates each stake against the tiers + cap and the slip
    total against the manager's balance. Migration `004_phase3_staking.sql`; 5 new unit
    tests (31 total green). Applied to Supabase.
    **Revised later:** staking moved from per-bet to **one stake per match**, spent
@@ -149,8 +149,8 @@ post-kickoff without blocking launch — upgrades are the spine.
    `purchase` ledger entry; settlement/submission read active upgrades (Coin Magnet
    income mult, Bigger Wallet stake cap, Extra Prop Slot count, Vault/Hot Hand/
    Accumulator).
-5. **Shop — self-buff power-ups** — Double Down, Insurance, Hedge, Banker as pure
-   settlement modifiers applied before the ×3 cap; consume idempotently.
+5. **Shop — self-buff power-ups** — Double Down, Hedge, Banker as pure settlement
+   modifiers; consume idempotently.
 6. **Morning recap + polish** — ✅ *largely built in slice 3*: the sequenced reveal
    (`DESIGN_SYSTEM.md`) and the **settling/waiting** state (N-of-M settled, results
    hidden until every slate match has `settled_at`) both ship. **Remaining polish:**
@@ -164,6 +164,18 @@ staked hits and costs Coins on staked misses, spend Coins on an upgrade that vis
 changes your next slate, and every balance reconciles against the ledger.
 
 ---
+
+## Phase 3.5 — Favorites: champion + favorite player (migration `009`)
+
+First-login onboarding: each manager locks a favorite **team** (an odds-weighted title bet, scored on a progressive advancement ladder) and a favorite **player** (Points per goal, a small booking penalty). Both immutable for the tournament. See `GAME_DESIGN.md` §10.
+
+- [x] Migration `009`: `managers.favorite_team_id / favorite_footballer_id / onboarding_completed_at`, `matches.winner_team_id`, `teams.champion_odds` (seeded for all 48), `config.favorites`. **Applied.**
+- [x] Pure settlement helpers (`src/settlement/favorites.ts`): `teamMultiplier`, `ladderBreakdown` (shared with the picker UI), `teamLadderDeltas`, `favoritePlayerDeltas` — 19 unit tests.
+- [x] `fixtures-sync` captures `winner_team_id` from football-data `score.winner` (penalty-shootout safe).
+- [x] Settle cron: favorite-player Points ride the per-match settle (ingestion now triggers for a favorite player even with no prop bet); favorite-team milestones settle in a dedicated every-tick step. Both idempotent via the ledger unique index.
+- [x] `/onboarding` route + `OnboardingPicker` (live per-team bonus ladder) + `completeOnboarding` action (server-side lock). `requireOnboarded()` gate on every protected page.
+- [x] `/profile` shows the locked picks, the team's ladder, and Points earned so far. `/admin` gallery: "Favorites picker" + updated Profile preview.
+- [x] Daily `/today` recap itemises favorite-player + favorite-team Points under the points odometer, and folds them into the headline total **and** the standings before/after (fixing a latent rank-delta bug that previously counted only bet Points).
 
 ## Phase 4 — Stat Leader prop (Sofascore)
 

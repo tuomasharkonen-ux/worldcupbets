@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { Trophy, Crown, Medal, Coins, Sparkles } from 'lucide-react';
-import { getSession } from '@/lib/session';
+import { getSession, requireOnboarded } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
@@ -16,6 +16,7 @@ const MEDAL = [
 export default async function LeaderboardPage() {
   const session = await getSession();
   if (!session.managerId) redirect('/join');
+  await requireOnboarded(session.managerId);
 
   const { data: managers } = await db
     .from('managers')

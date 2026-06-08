@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { CalendarDays, Clock, Lock, CircleDot, CheckCircle2, Ticket, Loader2, Coffee, Pencil } from 'lucide-react';
-import { getSession } from '@/lib/session';
+import { CalendarDays, Clock, Lock, CircleDot, CheckCircle2, Ticket, Loader2, Coffee, Pencil, Eye } from 'lucide-react';
+import { getSession, requireOnboarded } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Countdown } from '@/components/Countdown';
@@ -12,7 +12,7 @@ import { Flag } from '@/components/ui/flag';
 import { currentSlateKey, slateKeyOf, slateLabel } from '@/lib/slate';
 import { matchDayNumber } from '@/lib/matchday';
 import { buildSlateShareText, isShareProp } from '@/lib/share';
-import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding } from './Recap';
+import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding, type RecapFavoriteItem } from './Recap';
 import { ShareBetsButton } from './ShareBetsButton';
 import type {
   Bet,
@@ -66,6 +66,19 @@ const PROP_LABEL: Record<string, string> = {
   carded: 'Booked',
 };
 
+// Favorite-team milestone (migration 009): the ledger reason suffix earned by reaching
+// a stage maps from the team's match stage; champion/third are won, handled separately.
+const STAGE_RUNG: Record<string, string> = { r32: 'r32', r16: 'r16', qf: 'qf', sf: 'sf', final: 'final' };
+const MILESTONE_LABEL: Record<string, string> = {
+  r32: 'Out of the group',
+  r16: 'Reached the round of 16',
+  qf: 'Reached the quarter-final',
+  sf: 'Reached the semi-final',
+  third: 'Won the 3rd-place playoff',
+  final: 'Reached the final',
+  champion: 'Champions! 🏆',
+};
+
 function outcomeLabel(result: string, home: string, away: string): string {
   return result === 'home' ? home : result === 'away' ? away : 'Draw';
 }
@@ -73,6 +86,7 @@ function outcomeLabel(result: string, home: string, away: string): string {
 export default async function TodayPage() {
   const session = await getSession();
   if (!session.managerId) redirect('/join');
+  await requireOnboarded(session.managerId);
   const managerId = session.managerId;
 
   const { data: league } = await db
@@ -213,6 +227,86 @@ export default async function TodayPage() {
   // every slip is in (the all-set state), so build it lazily there.
   const shareText = state === 'allset' ? await buildShareText(matchDay, members, betsByMatch) : null;
 
+  // Player names for any prop picks, so the all-set list can name the footballer.
+  const propPlayerName = new Map<string, string>();
+  if (state === 'allset') {
+    const propIds = myBets
+      .filter(b => PROP_LABEL[b.bet_type])
+      .map(b => (b.selection as FootballerSelection).footballer_id);
+    if (propIds.length > 0) {
+      const { data: players } = await db.from('footballers').select('id, name').in('id', propIds);
+      for (const p of players ?? []) propPlayerName.set(p.id as string, p.name as string);
+    }
+  }
+
+  // All-set row: the slip is in for every match here, so lead with the prediction
+  // itself — flags flanking the called scoreline — and offer a real Edit button.
+  // Group label and the open/locked chip are intentionally dropped as noise.
+  function AllSetRow({ m }: { m: MatchRow }) {
+    const locked = m.status !== 'scheduled' || now >= new Date(m.kickoff_at);
+    const bs = betsByMatch.get(m.id) ?? [];
+    const outcome = bs.find(b => b.bet_type === 'outcome')!;
+    const exact = bs.find(b => b.bet_type === 'exact_score')!;
+    const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+    const ex = exact.selection as ExactScoreSelection;
+    const mult = outcome.stake_mult; // one stake/multiplier per match slip
+    const propPlayer = prop ? propPlayerName.get((prop.selection as FootballerSelection).footballer_id) : null;
+
+    return (
+      <div className="glass flex flex-col gap-3 rounded-2xl px-4 py-3.5">
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className="flex min-w-0 items-center justify-end gap-2 font-display font-semibold text-foreground">
+            <span className="truncate">{m.home_team.name}</span>
+            <Flag name={m.home_team.name} countryCode={m.home_team.country_code} size="sm" />
+          </span>
+          <span className="rounded-lg bg-surface-2 px-2.5 py-1 font-mono text-base font-bold tabular-nums text-foreground">
+            {ex.home}<span className="px-0.5 text-subtle">–</span>{ex.away}
+          </span>
+          <span className="flex min-w-0 items-center gap-2 font-display font-semibold text-foreground">
+            <Flag name={m.away_team.name} countryCode={m.away_team.country_code} size="sm" />
+            <span className="truncate">{m.away_team.name}</span>
+          </span>
+        </div>
+
+        {prop && (
+          <div className="flex items-center justify-center gap-1.5 text-xs text-muted">
+            <span className="text-subtle">{PROP_LABEL[prop.bet_type]}:</span>
+            <span className="font-medium text-foreground">{propPlayer ?? 'Unknown'}</span>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
+            <span className="flex items-center gap-1.5">
+              <Clock className="size-4" aria-hidden />
+              {formatKickoff(m.kickoff_at)}
+            </span>
+            <span aria-hidden className="text-subtle">·</span>
+            <span className="text-foreground">
+              {outcomeLabel((outcome.selection as OutcomeSelection).result, m.home_team.name, m.away_team.name)} to win
+            </span>
+            {mult > 1 && <Badge variant="points" size="sm">×{mult}</Badge>}
+          </div>
+          {locked ? (
+            <Button asChild size="sm" variant="glass" className="shrink-0">
+              <Link href={`/matches/${m.id}`}>
+                <Eye aria-hidden />
+                View result
+              </Link>
+            </Button>
+          ) : (
+            <Button asChild size="sm" variant="glass" className="shrink-0">
+              <Link href={`/matches/${m.id}?edit=1`}>
+                <Pencil aria-hidden />
+                Edit bet
+              </Link>
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // Inner row content, shared between the clickable (all-set) and plain (betting) layouts.
   // `editable` shows the pencil affordance only where a row actually links somewhere.
   function MatchRowInner({ m, editable }: { m: MatchRow; editable: boolean }) {
@@ -314,14 +408,11 @@ export default async function TodayPage() {
 
       {state === 'allset' ? (
         <div className="space-y-2.5">
+          <h2 className="px-1 text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
+            My bets
+          </h2>
           {members.map(m => (
-            <Link
-              key={m.id}
-              href={`/matches/${m.id}?edit=1`}
-              className="glass group flex flex-col gap-3 rounded-2xl px-4 py-3.5 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-border-strong"
-            >
-              <MatchRowInner m={m} editable />
-            </Link>
+            <AllSetRow key={m.id} m={m} />
           ))}
         </div>
       ) : (
@@ -426,7 +517,7 @@ async function buildRecap(
     };
   });
 
-  const pointsGained = myBets.reduce((s, b) => s + (b.glory_awarded ?? 0), 0);
+  const betPoints = myBets.reduce((s, b) => s + (b.glory_awarded ?? 0), 0);
 
   // Coin breakdown from this manager's ledger, scoped to the slate.
   const myBetIds = new Set(myBets.map(b => b.id));
@@ -458,8 +549,11 @@ async function buildRecap(
   // Glory this manager earned on the slate (from bet.glory_awarded).
   const { data: managers } = await db
     .from('managers')
-    .select('id, display_name, glory, coins');
-  const allManagers = (managers ?? []) as Pick<Manager, 'id' | 'display_name' | 'glory' | 'coins'>[];
+    .select('id, display_name, glory, coins, favorite_team_id, favorite_footballer_id');
+  const allManagers = (managers ?? []) as Pick<
+    Manager,
+    'id' | 'display_name' | 'glory' | 'coins' | 'favorite_team_id' | 'favorite_footballer_id'
+  >[];
 
   const { data: allSlateBets } = await db
     .from('bets')
@@ -469,6 +563,102 @@ async function buildRecap(
   for (const b of allSlateBets ?? []) {
     gainedByManager.set(b.manager_id, (gainedByManager.get(b.manager_id) ?? 0) + (b.glory_awarded ?? 0));
   }
+
+  // ── favorites (migration 009): fold this slate's favorite-player + favorite-team
+  // Points into the standings delta (so before/after ranks stay exact) and itemise
+  // them for this manager's breakdown.
+  const favItems: RecapFavoriteItem[] = [];
+  let myFavTotal = 0;
+  {
+    // Per-manager favorite-player Points keyed by match — one ledger row per match.
+    const { data: favPlayerRows } = await db
+      .from('ledger')
+      .select('manager_id, amount, ref_id')
+      .eq('currency', 'glory')
+      .eq('reason', 'fav_player')
+      .in('ref_id', memberIds);
+    // Per-(manager,milestone) favorite-team Points — season-scoped, attributed below to
+    // the slate where the team's matching match was played.
+    const { data: teamRows } = await db
+      .from('ledger')
+      .select('manager_id, amount, reason')
+      .eq('currency', 'glory')
+      .eq('ref_type', 'season')
+      .like('reason', 'team_%');
+    const teamAmount = new Map<string, number>();
+    for (const r of teamRows ?? []) teamAmount.set(`${r.manager_id}:${r.reason}`, r.amount);
+
+    // The milestone keys a team can claim from its matches *on this slate* — reach-rungs
+    // from each stage played, plus champion/third when won here.
+    const milestoneKeysFor = (teamId: string): string[] => {
+      const keys: string[] = [];
+      for (const m of members) {
+        if (m.home_team_id !== teamId && m.away_team_id !== teamId) continue;
+        if (STAGE_RUNG[m.stage]) keys.push(STAGE_RUNG[m.stage]);
+        if (m.stage === 'final' && m.status === 'finished' && m.winner_team_id === teamId) keys.push('champion');
+        if (m.stage === 'third' && m.status === 'finished' && m.winner_team_id === teamId) keys.push('third');
+      }
+      return keys;
+    };
+
+    for (const mgr of allManagers) {
+      let favTotal = (favPlayerRows ?? [])
+        .filter(r => r.manager_id === mgr.id)
+        .reduce((s, r) => s + r.amount, 0);
+      if (mgr.favorite_team_id) {
+        for (const key of milestoneKeysFor(mgr.favorite_team_id)) {
+          favTotal += teamAmount.get(`${mgr.id}:team_${key}`) ?? 0;
+        }
+      }
+      if (favTotal !== 0) gainedByManager.set(mgr.id, (gainedByManager.get(mgr.id) ?? 0) + favTotal);
+      if (mgr.id === managerId) myFavTotal = favTotal;
+    }
+
+    // Itemise this manager's favorites for the recap breakdown.
+    const me = allManagers.find(m => m.id === managerId);
+    if (me?.favorite_footballer_id) {
+      const { data: events } = await db
+        .from('match_events')
+        .select('match_id, type, is_own_goal')
+        .eq('footballer_id', me.favorite_footballer_id)
+        .in('match_id', memberIds);
+      const { data: playerRow } = await db
+        .from('footballers')
+        .select('name')
+        .eq('id', me.favorite_footballer_id)
+        .maybeSingle();
+      const playerName = (playerRow?.name as string | undefined) ?? 'Your player';
+      const playerPtsByMatch = new Map<string, number>();
+      for (const r of favPlayerRows ?? []) {
+        if (r.manager_id === managerId) playerPtsByMatch.set(r.ref_id, r.amount);
+      }
+      for (const m of members) {
+        const pts = playerPtsByMatch.get(m.id);
+        if (pts == null) continue; // player didn't feature / nothing scored or booked
+        const evs = (events ?? []).filter(e => e.match_id === m.id);
+        const goals = evs.filter(e => (e.type === 'goal' || e.type === 'penalty') && !e.is_own_goal).length;
+        const booked = evs.some(e => e.type === 'yellow' || e.type === 'red');
+        const parts: string[] = [];
+        if (goals > 0) parts.push(`${goals} goal${goals > 1 ? 's' : ''}`);
+        if (booked) parts.push('booked');
+        favItems.push({ kind: 'player', label: playerName, detail: parts.join(' · ') || 'featured', points: pts });
+      }
+    }
+    if (me?.favorite_team_id) {
+      const teamMatch = members.find(
+        m => m.home_team_id === me.favorite_team_id || m.away_team_id === me.favorite_team_id,
+      );
+      const teamName = teamMatch
+        ? (teamMatch.home_team_id === me.favorite_team_id ? teamMatch.home_team.name : teamMatch.away_team.name)
+        : 'Your team';
+      for (const key of milestoneKeysFor(me.favorite_team_id)) {
+        const pts = teamAmount.get(`${managerId}:team_${key}`);
+        if (pts == null) continue;
+        favItems.push({ kind: 'team', label: teamName, detail: MILESTONE_LABEL[key] ?? key, points: pts });
+      }
+    }
+  }
+  const pointsGained = betPoints + myFavTotal;
 
   const withScores = allManagers.map(m => ({
     id: m.id,
@@ -505,6 +695,7 @@ async function buildRecap(
     matchDay,
     matches: recapMatches,
     pointsGained,
+    favoriteItems: favItems,
     coinItems,
     coinsGained,
     standings,

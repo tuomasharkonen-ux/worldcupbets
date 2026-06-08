@@ -23,7 +23,8 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 ## How it works
 
 1. **Join** — enter the shared `LEAGUE_PASSCODE`, a display name, and a 4–6 digit PIN → claim a manager slot → signed cookie keeps you logged in (~400 days). A new name signs you up and sets your PIN; a returning name requires that PIN, so nobody can log in as you just by knowing your name. League size is capped by `config.max_managers` (default 20). Edit your name, avatar, or PIN any time on the **/profile** page.
-2. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and/or an Exact Score bet. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat.
+2. **Pick your favorites** — on first login, lock in a favorite **team** (a title bet scored on an odds-weighted advancement ladder — backing a longshot pays more at every stage it survives) and a favorite **player** (Points for every goal, a small penalty if booked). Both are fixed for the whole tournament; the picker shows the live Point rewards per pick. See `docs/GAME_DESIGN.md` §10.
+3. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and/or an Exact Score bet. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat.
 3. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Points movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
 4. **Leaderboard** — managers ranked by Points.
 5. **Share** — once your slate is in, the all-set screen offers a **Share my bets** button that copies a compact, emoji-flag digest of your picks to the clipboard (Wordle-style, ready to paste into WhatsApp); the morning recap offers **Share my results** — a spoiler-free 🟩/⬛/⬜ grid with your points and leaderboard move. Both end in a link back to the game.
@@ -34,7 +35,8 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 src/
   app/
     join/                 passcode + PIN login/signup flow (page + server action)
-    profile/              edit name, avatar, PIN; sign out (page + server actions)
+    onboarding/           first-login favorite team + player picker (page + client picker + action)
+    profile/              edit name, avatar, PIN, view locked favorites; sign out (page + server actions)
     fixtures/             full schedule grouped by NA match day (read-only; only today's slate is tappable)
     matches/[matchId]/    bet slip (page + BetSlip client component + action)
     leaderboard/          Points + Coins ranking
@@ -45,7 +47,7 @@ src/
   components/
     Nav.tsx               top navigation (glass)
     ui/                   design-system primitives: button, card, badge, input
-  settlement/             pure, unit-tested engine + types + fixtures
+  settlement/             pure, unit-tested engine + day-close + favorites (team ladder + player) + types + fixtures
   lib/                    supabase client, session, cron auth, slate math, share-text builder, country→flag, cn() class helper
   types/                  hand-written DB types mirroring the schema
 supabase/migrations/      001_initial_schema.sql, 002_phase2_props.sql  (source of truth for the schema)

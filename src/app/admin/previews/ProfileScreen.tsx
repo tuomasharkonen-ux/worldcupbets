@@ -1,9 +1,19 @@
 'use client';
 
-import { ArrowLeft, Trophy, Coins, UserRound, Lock, LogOut } from 'lucide-react';
+import { ArrowLeft, Trophy, Coins, UserRound, Lock, LogOut, Star, Shield } from 'lucide-react';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { Flag } from '@/components/ui/flag';
+import { ladderBreakdown } from '@/settlement/favorites';
+import type { FavoritesConfig } from '@/types/db';
+
+const FAV: FavoritesConfig = {
+  base_odds: 5.5, min_mult: 1.0, max_mult: 5.0,
+  ladder: { r32: 10, r16: 20, qf: 35, sf: 55, third: 40, final: 75, champion: 90 },
+  player_goal: 15, player_card: -5,
+};
+const RUNG_ORDER = ['r32', 'r16', 'qf', 'sf', 'third', 'final', 'champion'];
 
 const AVATAR_CHOICES = [
   '⚽', '🦁', '🐉', '🦅', '🐺', '🦈', '🐅', '🐂',
@@ -52,6 +62,8 @@ export function ProfileScreen() {
           </div>
         </div>
       </Card>
+
+      <FavoritesCard />
 
       <Card variant="glass" padding="lg" className="space-y-5">
         <CardTitle>Name &amp; avatar</CardTitle>
@@ -118,5 +130,61 @@ export function ProfileScreen() {
         Sign out
       </Button>
     </main>
+  );
+}
+
+// Marko backed Morocco (a ×3 underdog) and a striker — earned points so far.
+function FavoritesCard() {
+  const breakdown = ladderBreakdown(51, FAV); // Morocco-ish odds → ×3
+  const rungs = [...breakdown.rungs].sort((a, b) => RUNG_ORDER.indexOf(a.key) - RUNG_ORDER.indexOf(b.key));
+  return (
+    <Card variant="glass" padding="lg" className="space-y-4">
+      <div className="flex items-center justify-between">
+        <CardTitle>Your tournament picks</CardTitle>
+        <span className="flex items-center gap-1 text-xs text-subtle">
+          <Lock className="size-3.5" aria-hidden />
+          Locked
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5 rounded-2xl bg-surface-2 px-4 py-3">
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+            <Shield className="size-3.5" aria-hidden />
+            Champion pick
+          </p>
+          <p className="flex items-center gap-2 font-display font-bold text-foreground">
+            <Flag name="Morocco" countryCode="MAR" size="md" />
+            <span className="truncate">Morocco</span>
+          </p>
+        </div>
+        <div className="space-y-1.5 rounded-2xl bg-surface-2 px-4 py-3">
+          <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+            <Star className="size-3.5" aria-hidden />
+            Favorite player
+          </p>
+          <p className="truncate font-display font-bold text-foreground">Hakim Ziyech</p>
+        </div>
+      </div>
+      <div className="flex items-center justify-between rounded-2xl bg-surface-2 px-4 py-3">
+        <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+          <Trophy className="size-3.5" aria-hidden />
+          Earned from your picks
+        </p>
+        <p className="font-display text-xl font-bold text-points">95 pts</p>
+      </div>
+      <div className="space-y-1">
+        {rungs.map(r => (
+          <div
+            key={r.key}
+            className={`flex items-center justify-between text-sm ${
+              r.key === 'champion' ? 'font-semibold text-points' : 'text-muted'
+            }`}
+          >
+            <span>{r.label}</span>
+            <span className="font-mono">+{r.points} pts</span>
+          </div>
+        ))}
+      </div>
+    </Card>
   );
 }

@@ -29,8 +29,8 @@ export interface SlipSquads {
 
 export const PROP_META: Record<PropType, { label: string; hint: string; blurb: string }> = {
   first_scorer: { label: 'First goalscorer', hint: '+20 pts', blurb: 'Your player scores the match’s first goal (own goals excluded).' },
-  anytime_scorer: { label: 'Anytime goalscorer', hint: '+8 pts', blurb: 'Your player scores at any point in the match.' },
-  carded: { label: 'Booked', hint: '+6 pts', blurb: 'Your player gets a yellow or red card.' },
+  anytime_scorer: { label: 'Anytime goalscorer', hint: '+10 pts', blurb: 'Your player scores at any point in the match.' },
+  carded: { label: 'Booked', hint: '+10 pts', blurb: 'Your player gets a yellow or red card.' },
 };
 
 const PROP_ORDER: PropType[] = ['first_scorer', 'anytime_scorer', 'carded'];

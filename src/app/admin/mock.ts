@@ -13,23 +13,23 @@ export type MatchRow = Match & { home_team: Team; away_team: Team };
 
 // ─── primitives ──────────────────────────────────────────────────────────────
 
-function team(id: string, name: string, code: string): Team {
-  return { id, name, country_code: code, flag_url: null, fd_team_id: null, sofa_team_id: null };
+function team(id: string, name: string, code: string, odds: number | null = null): Team {
+  return { id, name, country_code: code, flag_url: null, fd_team_id: null, sofa_team_id: null, champion_odds: odds };
 }
 
 export const TEAMS = {
-  brazil: team('t-bra', 'Brazil', 'BRA'),
-  argentina: team('t-arg', 'Argentina', 'ARG'),
-  france: team('t-fra', 'France', 'FRA'),
-  spain: team('t-esp', 'Spain', 'ESP'),
-  germany: team('t-ger', 'Germany', 'GER'),
-  england: team('t-eng', 'England', 'ENG'),
-  netherlands: team('t-ned', 'Netherlands', 'NED'),
-  portugal: team('t-por', 'Portugal', 'POR'),
-  croatia: team('t-cro', 'Croatia', 'CRO'),
-  japan: team('t-jpn', 'Japan', 'JPN'),
-  morocco: team('t-mar', 'Morocco', 'MAR'),
-  usa: team('t-usa', 'United States', 'USA'),
+  brazil: team('t-bra', 'Brazil', 'BRA', 8.5),
+  argentina: team('t-arg', 'Argentina', 'ARG', 8),
+  france: team('t-fra', 'France', 'FRA', 6),
+  spain: team('t-esp', 'Spain', 'ESP', 5.5),
+  germany: team('t-ger', 'Germany', 'GER', 11),
+  england: team('t-eng', 'England', 'ENG', 7),
+  netherlands: team('t-ned', 'Netherlands', 'NED', 17),
+  portugal: team('t-por', 'Portugal', 'POR', 13),
+  croatia: team('t-cro', 'Croatia', 'CRO', 51),
+  japan: team('t-jpn', 'Japan', 'JPN', 67),
+  morocco: team('t-mar', 'Morocco', 'MAR', 51),
+  usa: team('t-usa', 'United States', 'USA', 34),
 };
 
 // Stake config mirrors migration 004 (tiers + cap), with a sample balance.
@@ -47,11 +47,9 @@ export const MOCK_STAKE: { tiers: StakeTier[]; capCoins: number; balance: number
 // Scoring config for the bet slip's live max-winnings counter (GAME_DESIGN §3/§5).
 export const MOCK_SCORING = {
   stageMult: 1.0,
-  maxTotalMult: 3.0,
   outcome: 10,
-  exactBonus: 15,
-  goalDiff: 5,
-  props: { first_scorer: 20, anytime_scorer: 8, carded: 6 },
+  exactBonus: 25,
+  props: { first_scorer: 20, anytime_scorer: 10, carded: 10 },
 };
 
 let _betSeq = 0;
@@ -91,6 +89,7 @@ function match(
     away_score: null,
     glory_multiplier: 1,
     settled_at: null,
+    winner_team_id: null,
     ...extra,
     home_team: home,
     away_team: away,
@@ -255,7 +254,12 @@ export const MOCK_RECAP: RecapData = {
       ],
     },
   ],
-  pointsGained: 86,
+  // Headline = bet Points (86) + favorites (138).
+  pointsGained: 224,
+  favoriteItems: [
+    { kind: 'player', label: 'Vinícius Jr.', detail: '1 goal', points: 15 },
+    { kind: 'team', label: 'Morocco', detail: 'Reached the quarter-final', points: 123 },
+  ],
   coinItems: [
     { label: 'Participation', amount: 15 },
     { label: 'Bet winnings', amount: 92 },
@@ -263,7 +267,7 @@ export const MOCK_RECAP: RecapData = {
   ],
   coinsGained: 47,
   standings: [
-    { id: 'me', name: 'You', before: 214, after: 300, rankBefore: 3, rankAfter: 1, isYou: true },
+    { id: 'me', name: 'You', before: 214, after: 438, rankBefore: 3, rankAfter: 1, isYou: true },
     { id: 'a', name: 'Semi', before: 290, after: 295, rankBefore: 1, rankAfter: 2, isYou: false },
     { id: 'b', name: 'Janne', before: 255, after: 268, rankBefore: 2, rankAfter: 3, isYou: false },
     { id: 'c', name: 'Pekka', before: 180, after: 192, rankBefore: 4, rankAfter: 4, isYou: false },

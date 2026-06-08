@@ -4,6 +4,12 @@ import { db } from '@/lib/supabase';
 import { getMatchDetail } from '@/lib/football-data';
 import { settle } from '@/settlement/engine';
 import { closeSlate } from '@/settlement/dayclose';
+import {
+  favoritePlayerDeltas,
+  teamLadderDeltas,
+  teamMultiplier,
+  type LadderMatch,
+} from '@/settlement/favorites';
 import { slateKeyOf } from '@/lib/slate';
 import type { Bet, EventType, League, ManagerState, Match, MatchEvent } from '@/types/db';
 
@@ -18,7 +24,11 @@ export async function GET(req: NextRequest) {
 
   try {
     const { settled, slatesClosed } = await settleFinishedMatches();
-    return NextResponse.json({ ok: true, settled, slatesClosed });
+    // Favorite-team advancement ladder (migration 009). Runs every tick, independent
+    // of which matches just finished: a reach-a-stage milestone fires as soon as the
+    // knockout fixture appears, and champion/third resolve when those games finish.
+    const favTeamAwards = await settleFavoriteTeams();
+    return NextResponse.json({ ok: true, settled, slatesClosed, favTeamAwards });
   } catch (err) {
     console.error('[settle] error:', err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
@@ -68,6 +78,84 @@ async function settleFinishedMatches(): Promise<{ settled: number; slatesClosed:
   }
 
   return { settled: justSettled.length, slatesClosed };
+}
+
+// Favorite-team advancement ladder (migration 009). For every manager with a locked
+// favorite team, award any milestones the team has now reached/won. Idempotent: each
+// milestone is one ledger row keyed (reason='team_<stage>', ref_type='season',
+// ref_id=season, manager_id), so re-running every 10 min is a no-op once awarded.
+async function settleFavoriteTeams(): Promise<number> {
+  const { data: league } = await db
+    .from('league')
+    .select('season, config')
+    .eq('id', 1)
+    .single<Pick<League, 'season' | 'config'>>();
+  const fav = league?.config.favorites;
+  if (!league || !fav) return 0; // favorites not configured → nothing to do
+
+  const { data: mgrRows } = await db
+    .from('managers')
+    .select('id, favorite_team_id')
+    .not('favorite_team_id', 'is', null);
+  const managers = (mgrRows ?? []) as { id: string; favorite_team_id: string }[];
+  if (managers.length === 0) return 0;
+
+  // Odds for the favorite teams → underdog multipliers.
+  const teamIds = [...new Set(managers.map(m => m.favorite_team_id))];
+  const { data: teamRows } = await db.from('teams').select('id, champion_odds').in('id', teamIds);
+  const oddsById = new Map<string, number | null>(
+    (teamRows ?? []).map(t => [t.id as string, t.champion_odds as number | null]),
+  );
+
+  // Every non-void match — the ladder filters to each team's own games.
+  const { data: matchRows } = await db
+    .from('matches')
+    .select('stage, status, home_team_id, away_team_id, winner_team_id')
+    .neq('status', 'void');
+  const matches = (matchRows ?? []) as LadderMatch[];
+
+  // Already-awarded milestones, so we only write (and recompute) genuinely new ones —
+  // teamLadderDeltas returns every milestone reached so far on each run.
+  const { data: priorRows } = await db
+    .from('ledger')
+    .select('manager_id, reason')
+    .eq('ref_type', 'season')
+    .eq('ref_id', league.season)
+    .like('reason', 'team_%')
+    .in('manager_id', managers.map(m => m.id));
+  const alreadyAwarded = new Set((priorRows ?? []).map(r => `${r.manager_id}:${r.reason}`));
+
+  const allDeltas: { managerId: string; currency: string; amount: number; reason: string; refType: string; refId: string }[] = [];
+  for (const m of managers) {
+    const deltas = teamLadderDeltas({
+      managerId: m.id,
+      teamId: m.favorite_team_id,
+      multiplier: teamMultiplier(oddsById.get(m.favorite_team_id), fav),
+      matches,
+      fav,
+      seasonKey: league.season,
+    });
+    for (const d of deltas) {
+      if (!alreadyAwarded.has(`${d.managerId}:${d.reason}`)) allDeltas.push(d);
+    }
+  }
+  if (allDeltas.length === 0) return 0;
+
+  const rows = allDeltas.map(d => ({
+    manager_id: d.managerId,
+    currency: d.currency,
+    amount: d.amount,
+    reason: d.reason,
+    ref_type: d.refType,
+    ref_id: d.refId,
+  }));
+  const { error } = await db
+    .from('ledger')
+    .upsert(rows, { onConflict: 'reason,ref_type,ref_id,manager_id', ignoreDuplicates: true });
+  if (error) throw error;
+
+  await recomputeBalances([...new Set(allDeltas.map(d => d.managerId))]);
+  return allDeltas.length;
 }
 
 // Recompute the cached managers.glory / managers.coins from the append-only ledger
@@ -177,13 +265,33 @@ async function settleMatch(match: Match, league: League): Promise<void> {
   if (betsErr) throw betsErr;
   const pendingBets = (bets ?? []) as Bet[];
 
-  // Player props need goals/cards/lineups from football-data. Only pay for the
-  // extra API call when there's actually a prop bet riding on this match.
+  // Favorite-player bonus (migration 009): managers whose locked favorite player is in
+  // this match earn Points for goals / lose some if booked — whether or not they bet.
+  // Resolve which managers that's, so we know to pull match events for them too.
+  const { data: squad } = await db
+    .from('footballers')
+    .select('id')
+    .in('team_id', [match.home_team_id, match.away_team_id]);
+  const squadIds = (squad ?? []).map(s => s.id as string);
+  let favPlayers: { managerId: string; footballerId: string }[] = [];
+  if (squadIds.length > 0) {
+    const { data: favMgrs } = await db
+      .from('managers')
+      .select('id, favorite_footballer_id')
+      .in('favorite_footballer_id', squadIds);
+    favPlayers = (favMgrs ?? []).map(m => ({
+      managerId: m.id as string,
+      footballerId: m.favorite_footballer_id as string,
+    }));
+  }
+
+  // Player props AND favorite players need goals/cards/lineups from football-data. Only
+  // pay for the extra API call when something on this match actually depends on it.
   // If ingestion throws, we let settleMatch throw too: the match stays unsettled
   // (settled_at null) and the next cron run retries — better than prematurely
   // settling props on missing data.
   const hasProps = pendingBets.some(b => PROP_BET_TYPES.includes(b.bet_type));
-  if (hasProps) {
+  if (hasProps || favPlayers.length > 0) {
     await ingestMatchData(match);
   }
 
@@ -208,6 +316,17 @@ async function settleMatch(match: Match, league: League): Promise<void> {
     config: league.config,
     appearances: appearances.length > 0 ? appearances : undefined,
   });
+
+  // Favorite-player Points ride along on the same idempotent ledger upsert below.
+  if (league.config.favorites && favPlayers.length > 0) {
+    const favDeltas = favoritePlayerDeltas({
+      matchId: match.id,
+      events: (events ?? []) as MatchEvent[],
+      favorites: favPlayers,
+      fav: league.config.favorites,
+    });
+    result.deltas.push(...favDeltas);
+  }
 
   // Write results in a single transaction-like batch
   // (Supabase doesn't have true multi-table transactions via the REST client;

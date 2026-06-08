@@ -52,7 +52,7 @@ describe('outcome bet', () => {
 
 describe('exact score bet', () => {
   // Fixture final score is 2–1 (home by 1).
-  test('correct exact score wins outcome + exact + goal-difference', () => {
+  test('correct exact score wins outcome + exact bonus', () => {
     const bet = makeBet({
       id: 'bet-002',
       bet_type: 'exact_score',
@@ -62,10 +62,10 @@ describe('exact score bet', () => {
 
     const update = result.betUpdates.find(u => u.betId === 'bet-002');
     expect(update?.status).toBe('won');
-    expect(update?.pointsAwarded).toBe(30); // 10 + 15 + 5 (gd)
+    expect(update?.pointsAwarded).toBe(35); // 10 + 25, no goal-difference bonus
   });
 
-  test('right outcome + right margin but wrong score → goal-difference bonus only, status lost', () => {
+  test('right outcome + right margin but wrong score → nothing (goal-difference removed)', () => {
     const bet = makeBet({
       id: 'bet-gd',
       bet_type: 'exact_score',
@@ -74,8 +74,8 @@ describe('exact score bet', () => {
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
     const update = result.betUpdates.find(u => u.betId === 'bet-gd');
-    expect(update?.status).toBe('lost'); // not an exact win…
-    expect(update?.pointsAwarded).toBe(5); // …but earns the goal-difference bonus
+    expect(update?.status).toBe('lost');
+    expect(update?.pointsAwarded).toBe(0); // no consolation — exact score is all-or-nothing
   });
 
   test('right outcome, wrong margin → nothing from the exact bet', () => {
@@ -124,14 +124,14 @@ describe('stake multiplier', () => {
 });
 
 describe('staking (GAME_DESIGN §5) — one stake per match, spent either way', () => {
-  test('combined stage × stake multiplier is capped at max_total_multiplier (×3)', () => {
-    // final stage ×2.0 and a ×2.0 stake would be ×4.0 — capped to ×3.0.
+  test('combined stage × stake multiplier is uncapped', () => {
+    // final stage ×2.0 and a ×2.0 stake compound to ×4.0 — no cap.
     const finalMatch: Match = { ...match, stage: 'final', glory_multiplier: 2.0 };
     const bet = makeBet({ selection: { result: 'home' }, stake_coins: 50, stake_mult: 2.0 });
     const result = settle({ match: finalMatch, bets: [bet], events: noEvents, config });
 
     expect(result.betUpdates[0].status).toBe('won');
-    expect(result.betUpdates[0].pointsAwarded).toBe(30); // 10 * min(2.0*2.0, 3.0) = 10 * 3.0
+    expect(result.betUpdates[0].pointsAwarded).toBe(40); // 10 * (2.0 * 2.0)
   });
 
   test('a staked miss still spends the Coins (negative stake_spend), no Glory penalty', () => {
@@ -169,7 +169,7 @@ describe('staking (GAME_DESIGN §5) — one stake per match, spent either way', 
     expect(spends[0].refId).toBe(match.id);
     // Both picks won and were amplified ×1.5.
     expect(result.betUpdates.find(u => u.betId === 'b-out')?.pointsAwarded).toBe(15); // 10 * 1.5
-    expect(result.betUpdates.find(u => u.betId === 'b-exact')?.pointsAwarded).toBe(45); // (10+15+5) * 1.5
+    expect(result.betUpdates.find(u => u.betId === 'b-exact')?.pointsAwarded).toBe(53); // round((10+25) * 1.5)
   });
 
   test('props never hold the match stake — an unstaked void emits nothing', () => {
@@ -186,8 +186,8 @@ describe('staking (GAME_DESIGN §5) — one stake per match, spent either way', 
     expect(result.deltas).toHaveLength(0); // no stake_spend (prop holds no coins), no income
   });
 
-  test('the goal-difference consolation is not amplified by a stake, and the stake is still spent', () => {
-    // 3–2 matches the 2–1 margin but isn't exact → status lost, gd Glory only.
+  test('a near-miss exact score earns nothing but the stake is still spent', () => {
+    // 3–2 matches the 2–1 margin but isn't exact → status lost, no Glory (gd removed).
     const bet = makeBet({
       id: 'bet-gd-stake',
       bet_type: 'exact_score',
@@ -198,7 +198,7 @@ describe('staking (GAME_DESIGN §5) — one stake per match, spent either way', 
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
     expect(result.betUpdates[0].status).toBe('lost');
-    expect(result.betUpdates[0].pointsAwarded).toBe(5); // gd only, NOT 5 * 2.0
+    expect(result.betUpdates[0].pointsAwarded).toBe(0);
     expect(result.deltas.find(d => d.reason === 'stake_spend')?.amount).toBe(-50);
   });
 });
@@ -222,12 +222,11 @@ describe('coin income (per-bet)', () => {
     expect(coin?.amount).toBe(10); // coins.exact — stage multiplier does NOT apply to coins
   });
 
-  test('goal-difference-only exact bet pays the gd coin reward', () => {
+  test('a near-miss exact bet pays no coins (goal-difference removed)', () => {
     const bet = makeBet({ id: 'bet-gd2', bet_type: 'exact_score', selection: { home: 3, away: 2 } });
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
-    const coin = result.deltas.find(d => d.currency === 'coins');
-    expect(coin?.amount).toBe(3); // coins.goal_difference
+    expect(result.deltas.filter(d => d.currency === 'coins')).toHaveLength(0);
   });
 
   test('losing bet earns no coins', () => {
@@ -251,7 +250,7 @@ describe('coin income (per-bet)', () => {
 // Config including Phase 2 prop values (the v1 fixture predates them).
 const propConfig: LeagueConfig = {
   ...config,
-  glory: { ...config.glory, first_goalscorer: 20, anytime_scorer: 8, carded: 6, stat_leader: 15 },
+  glory: { ...config.glory, first_goalscorer: 20, anytime_scorer: 10, carded: 10 },
 };
 
 function makeEvent(overrides: Partial<MatchEvent>): MatchEvent {
@@ -321,7 +320,7 @@ describe('anytime goalscorer prop', () => {
     const result = settle({ match, bets: [bet], events, config: propConfig });
 
     expect(result.betUpdates[0].status).toBe('won');
-    expect(result.betUpdates[0].pointsAwarded).toBe(8);
+    expect(result.betUpdates[0].pointsAwarded).toBe(10);
   });
 
   test('own goal does not count as scoring for the player', () => {
@@ -344,7 +343,7 @@ describe('carded prop', () => {
     const result = settle({ match, bets: [bet], events, config: propConfig });
 
     expect(result.betUpdates[0].status).toBe('won');
-    expect(result.betUpdates[0].pointsAwarded).toBe(6);
+    expect(result.betUpdates[0].pointsAwarded).toBe(10);
     expect(result.betUpdates[0].coinsAwarded).toBe(4); // coins.prop
     expect(result.deltas.find(d => d.currency === 'coins')?.amount).toBe(4);
   });
@@ -356,7 +355,7 @@ describe('carded prop', () => {
     const result = settle({ match: finalMatch, bets: [bet], events, config: propConfig });
 
     expect(result.betUpdates[0].status).toBe('won');
-    expect(result.betUpdates[0].pointsAwarded).toBe(12); // 6 * 2.0
+    expect(result.betUpdates[0].pointsAwarded).toBe(20); // 10 * 2.0
   });
 });
 

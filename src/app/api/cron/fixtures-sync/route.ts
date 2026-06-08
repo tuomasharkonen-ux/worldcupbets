@@ -73,6 +73,16 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
     const stage = mapStage(m.stage);
     const status = mapStatus(m.status);
 
+    // The true winner — needed for the favorite-team ladder, since a knockout decided
+    // on penalties leaves fullTime level. score.winner reflects the actual result
+    // (incl. extra time / shootout); DRAW or unfinished → null.
+    const winnerTeamId =
+      m.score?.winner === 'HOME_TEAM'
+        ? homeTeam.id
+        : m.score?.winner === 'AWAY_TEAM'
+          ? awayTeam.id
+          : null;
+
     const { error } = await db.from('matches').upsert(
       {
         fd_match_id: m.id,
@@ -84,6 +94,7 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
         status,
         home_score: m.score?.fullTime?.home ?? null,
         away_score: m.score?.fullTime?.away ?? null,
+        winner_team_id: winnerTeamId,
         glory_multiplier: pointsMultiplier(stage),
       },
       { onConflict: 'fd_match_id' },
@@ -123,13 +134,15 @@ function mapStatus(fdStatus: string): string {
 }
 
 function pointsMultiplier(stage: string): number {
+  // Knockout-only amplification: group → R16 stay flat, multipliers kick in from the
+  // quarter-finals (GAME_DESIGN §3). Keep in sync with config.glory_multipliers.
   const map: Record<string, number> = {
     group: 1.0,
-    r32: 1.25,
-    r16: 1.5,
-    qf: 1.75,
+    r32: 1.0,
+    r16: 1.0,
+    qf: 1.5,
     sf: 1.75,
-    third: 1.5,
+    third: 1.75,
     final: 2.0,
   };
   return map[stage] ?? 1.0;

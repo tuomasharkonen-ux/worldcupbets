@@ -17,19 +17,16 @@
   "config": {
     "glory": {
       "outcome_correct": 10,
-      "exact_score_bonus": 15,
-      "goal_difference": 5
+      "exact_score_bonus": 25
     },
     "coins": {
       "starting_balance": 100,
       "outcome": 5,
-      "goal_difference": 3,
       "exact": 10,
       "prop": 4,
       "participation": 10,
       "clean_slate": 15,
-      "streak_bonus": { "2": 2, "3": 4, "4": 6 },
-      "interest_rate": 0.05
+      "streak_bonus_per_day": 1
     },
     "daily": { "rollover_hour_local": 9 },
     "stake": {
@@ -39,16 +36,15 @@
         { "coins": 25, "mult": 1.5 },
         { "coins": 50, "mult": 2.0 }
       ],
-      "cap_coins": 50,
-      "max_total_multiplier": 3.0
+      "cap_coins": 50
     },
     "glory_multipliers": {
       "group": 1.0,
-      "r32": 1.25,
-      "r16": 1.5,
-      "qf": 1.75,
+      "r32": 1.0,
+      "r16": 1.0,
+      "qf": 1.5,
       "sf": 1.75,
-      "third": 1.5,
+      "third": 1.75,
       "final": 2.0
     }
   }
