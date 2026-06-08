@@ -101,24 +101,46 @@ export default async function MatchPage({
     },
   };
 
-  // Slate stepper: if this match belongs to today's slate, work out its position and
-  // the next match to jump to after saving (null on the last → the all-set screen).
+  // Slate stepper: if this match belongs to the active slate, work out its position
+  // and the next match to jump to after saving (null on the last → the all-set
+  // screen). The active slate mirrors the Today screen: today's slate, or — when
+  // today is a rest day — the next upcoming slate with fixtures. Without that same
+  // fallback the stepper (1/N counter + auto-advance) silently vanishes whenever
+  // Today is surfacing an upcoming slate, e.g. before the first match day.
   const rollover = league?.config.daily?.rollover_hour_local ?? 9;
   const now = new Date();
-  const todayKey = currentSlateKey(now, rollover);
-  let slate: { index: number; total: number; nextHref: string | null } | undefined;
-  if (!editing && slateKeyOf(match.kickoff_at, rollover) === todayKey) {
-    const dayMs = 24 * 60 * 60 * 1000;
-    const slateMidnightUtc = new Date(`${todayKey}T00:00:00Z`).getTime();
-    const { data: windowMatches } = await db
+  const dayMs = 24 * 60 * 60 * 1000;
+  const slateMembers = async (key: string) => {
+    const slateMidnightUtc = new Date(`${key}T00:00:00Z`).getTime();
+    const { data } = await db
       .from('matches')
       .select('id, kickoff_at, status')
       .gte('kickoff_at', new Date(slateMidnightUtc - dayMs).toISOString())
       .lte('kickoff_at', new Date(slateMidnightUtc + 2 * dayMs).toISOString())
       .order('kickoff_at', { ascending: true });
-    const members = (windowMatches ?? []).filter(
-      mm => mm.status !== 'void' && slateKeyOf(mm.kickoff_at as string, rollover) === todayKey,
+    return (data ?? []).filter(
+      mm => mm.status !== 'void' && slateKeyOf(mm.kickoff_at as string, rollover) === key,
     );
+  };
+
+  let slate: { index: number; total: number; nextHref: string | null } | undefined;
+  if (!editing) {
+    let activeKey = currentSlateKey(now, rollover);
+    let members = await slateMembers(activeKey);
+    if (members.length === 0) {
+      const { data: nextRows } = await db
+        .from('matches')
+        .select('kickoff_at')
+        .neq('status', 'void')
+        .gte('kickoff_at', now.toISOString())
+        .order('kickoff_at', { ascending: true })
+        .limit(1);
+      const nextKickoff = nextRows?.[0]?.kickoff_at as string | undefined;
+      if (nextKickoff) {
+        activeKey = slateKeyOf(nextKickoff, rollover);
+        members = await slateMembers(activeKey);
+      }
+    }
     const idx = members.findIndex(mm => mm.id === matchId);
     if (idx !== -1) {
       const next = members[idx + 1];

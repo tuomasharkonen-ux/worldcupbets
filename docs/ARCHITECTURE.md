@@ -35,6 +35,7 @@ There is no websocket layer and no live in-match feed requirement. Bets lock at 
 - **Server Components** fetch game state (fixtures, standings, balances) directly via the Supabase server client.
 - **Client Components** handle interactivity: building a bet slip, attaching a stake, buying from the shop, picking a sabotage target.
 - **Server Actions** (or API routes) handle all mutations: submit slip, purchase, activate sabotage. All writes go through the server — never let the client write balances directly.
+- **Social sharing** — the all-set Today screen and the morning recap each offer a Wordle-style copy-to-clipboard share (`ShareBetsButton`). The slate digest (flags + scorelines + props) is built server-side; the recap digest (spoiler-free 🟩/⬛/⬜ grid + points + leaderboard move) is built client-side from the already-loaded `RecapData`. Both share a pure flag-emoji helper (`lib/country-flags.ts → toFlagEmoji`); the slate builder lives in pure `lib/share.ts` so the real page and the `/admin` preview render identical text.
 
 ### Database (Supabase Postgres)
 
@@ -105,9 +106,12 @@ If the Sofascore dependency proves too flaky during the tournament, the document
 ## 4. Security & access
 
 - **Join:** shared `LEAGUE_PASSCODE` **+ a per-player PIN** (4–6 digits). A new display name signs up and sets its PIN; a returning name must present that PIN — so the passcode alone no longer lets anyone impersonate an existing player (the gap that made the original shared-passcode-only model unsafe to share widely). PINs are hashed with scrypt (`src/lib/pin.ts`); the column is nullable so pre-PIN players back-fill theirs on next login. A signed cookie keeps you "logged in" for ~400 days (`ttl` + cookie `maxAge` both set explicitly — iron-session's seal otherwise defaults to a 14-day expiry that would log players out mid-tournament). League size is capped by `config.max_managers` (default 20). No email.
+- **PIN brute-force lockout:** PINs are low-entropy (4–6 digits), so once the shared passcode is known the PIN is all that protects a name. After `MAX_PIN_ATTEMPTS` (5) consecutive wrong PINs the name is frozen for 15 minutes (`managers.failed_pin_attempts` / `pin_locked_until`, migration `007`), enforced in the join server action.
 - **No PII**, no payments, no real money. A private group of friends.
-- **Server-only secrets:** `SUPABASE_SERVICE_ROLE_KEY`, `FOOTBALL_DATA_TOKEN`, `CRON_SECRET` live in Vercel env vars, never shipped to the client bundle.
+- **Direct DB access is not exposed:** all Postgres access is server-side via the service-role key — there is no public anon key and no client-side Supabase client, so the database is reachable only through the app's server actions and route handlers. (This is why RLS being off is not an exposure here; it would only matter if an anon key were ever shipped to the browser.)
+- **Server-only secrets:** `SUPABASE_SERVICE_ROLE_KEY`, `FOOTBALL_DATA_TOKEN`, `CRON_SECRET`, `SESSION_PASSWORD` live in Vercel env vars, never shipped to the client bundle.
 - **Cron protection:** cron routes check the `CRON_SECRET` header so they can't be triggered by randos hitting the URL.
+- **Dev endpoints are production-blocked:** `/api/dev/*` (fabricate/seed match results) return 404 when `NODE_ENV === 'production'`, on top of the `CRON_SECRET` check, so they can never alter live data.
 
 ## 5. Timezones
 
