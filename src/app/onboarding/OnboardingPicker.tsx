@@ -149,7 +149,7 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
           </Button>
 
           <Dialog open={teamModalOpen} onOpenChange={setTeamModalOpen}>
-            <DialogContent className="gap-0" showClose>
+            <DialogContent className="gap-0" showClose onOpenAutoFocus={e => e.preventDefault()}>
               <DialogTitle>Pick your champion</DialogTitle>
               <DialogDescription className="mt-1">
                 Pick the team you think lifts the trophy. Underdogs pay a bigger multiplier.
@@ -158,7 +158,6 @@ export function OnboardingPicker({ teams, players }: { teams: PickerTeam[]; play
               <div className="relative mt-4">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" aria-hidden />
                 <Input
-                  autoFocus
                   value={teamQuery}
                   onChange={e => setTeamQuery(e.target.value)}
                   placeholder="Search teams…"
