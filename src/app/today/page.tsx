@@ -175,25 +175,25 @@ export default async function TodayPage() {
       <SlateHeader slateKey={slateKey} />
 
       {state === 'allset' ? (
-        <Card variant="glass" padding="md" className="flex items-center gap-3">
-          <CheckCircle2 className="size-6 shrink-0 text-success" aria-hidden />
-          <div className="min-w-0">
-            <p className="font-display font-bold text-foreground">You’re all set</p>
-            <p className="text-sm text-muted">
+        <div className="flex flex-col items-center gap-3 py-3 text-center">
+          <CheckCircle2 className="size-12 text-success" aria-hidden />
+          <div>
+            <p className="font-display text-2xl font-bold text-foreground">You’re all set</p>
+            <p className="mt-1.5 text-base text-muted">
               Slip in for every match. Bets stay editable until each kickoff — first is {formatKickoff(firstKickoff)}.
             </p>
           </div>
-        </Card>
+        </div>
       ) : (
-        <Card variant="glass" padding="md" className="flex items-center gap-3">
-          <Ticket className="size-6 shrink-0 text-primary-bright" aria-hidden />
-          <div className="min-w-0">
-            <p className="font-display font-bold text-foreground">Build tonight’s slip</p>
-            <p className="text-sm text-muted">
+        <div className="flex flex-col items-center gap-3 py-3 text-center">
+          <Ticket className="size-12 text-primary-bright" aria-hidden />
+          <div>
+            <p className="font-display text-2xl font-bold text-foreground">Build tonight’s slip</p>
+            <p className="mt-1.5 text-base text-muted">
               {missingCount} of {members.length} {missingCount === 1 ? 'match' : 'matches'} still need a pick.
             </p>
           </div>
-        </Card>
+        </div>
       )}
 
       <div className="space-y-2.5">
@@ -305,19 +305,24 @@ async function buildRecap(
       .map(b => {
         if (b.bet_type === 'outcome') {
           const sel = b.selection as OutcomeSelection;
-          return { label: 'Outcome', detail: outcomeLabel(sel.result, m.home_team.name, m.away_team.name), result: b.status, staked: b.stake_coins } as RecapPick;
+          return { label: 'Outcome', detail: outcomeLabel(sel.result, m.home_team.name, m.away_team.name), result: b.status } as RecapPick;
         }
         if (b.bet_type === 'exact_score') {
           const sel = b.selection as ExactScoreSelection;
-          return { label: 'Score', detail: `${sel.home}–${sel.away}`, result: b.status, staked: b.stake_coins } as RecapPick;
+          return { label: 'Score', detail: `${sel.home}–${sel.away}`, result: b.status } as RecapPick;
         }
         if (PROP_LABEL[b.bet_type]) {
           const sel = b.selection as FootballerSelection;
-          return { label: PROP_LABEL[b.bet_type], detail: playerName.get(sel.footballer_id) ?? 'Unknown', result: b.status, staked: b.stake_coins } as RecapPick;
+          return { label: PROP_LABEL[b.bet_type], detail: playerName.get(sel.footballer_id) ?? 'Unknown', result: b.status } as RecapPick;
         }
         return null;
       })
       .filter((p): p is RecapPick => p != null);
+
+    // One stake per match slip: coins recorded on the outcome bet, the multiplier
+    // shared across every pick (GAME_DESIGN §5).
+    const staked = bs.reduce((s, b) => s + b.stake_coins, 0);
+    const stakeMult = bs[0]?.stake_mult ?? 1;
 
     return {
       id: m.id,
@@ -328,6 +333,8 @@ async function buildRecap(
       homeScore: m.home_score ?? 0,
       awayScore: m.away_score ?? 0,
       picks,
+      staked,
+      stakeMult,
     };
   });
 
@@ -352,7 +359,7 @@ async function buildRecap(
     { reason: 'participation', label: 'Participation' },
     { reason: 'clean_slate', label: 'Clean slate' },
     { reason: 'bet_coin', label: 'Bet winnings' },
-    { reason: 'stake_loss', label: 'Stakes lost' },
+    { reason: 'stake_spend', label: 'Coins staked' },
   ];
   const coinItems: RecapCoinItem[] = itemDefs
     .map(d => ({ label: d.label, amount: sumReason(d.reason) }))

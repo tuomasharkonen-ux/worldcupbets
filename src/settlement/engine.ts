@@ -21,8 +21,17 @@ export function settle(input: SettleInput): SettleResult {
   const deltas: CurrencyDelta[] = [];
   const betUpdates: BetUpdate[] = [];
 
+  // A single Coin stake rides the whole match slip (GAME_DESIGN §5). It's recorded
+  // on the bets at submission; settle charges it once per manager+match here. Sum
+  // per manager so a multi-manager batch each pays their own stake exactly once.
+  const stakeByManager = new Map<string, number>();
+
   for (const bet of bets) {
     if (bet.status !== 'pending') continue;
+
+    if (bet.stake_coins > 0) {
+      stakeByManager.set(bet.manager_id, (stakeByManager.get(bet.manager_id) ?? 0) + bet.stake_coins);
+    }
 
     const update = settleBet(bet, input);
     betUpdates.push(update);
@@ -35,22 +44,6 @@ export function settle(input: SettleInput): SettleResult {
         currency: 'glory',
         amount: update.pointsAwarded,
         reason: 'bet_win',
-        refType: 'bet',
-        refId: bet.id,
-      });
-    }
-
-    // Staking (GAME_DESIGN §5): the stake rides on the bet hitting. A miss forfeits
-    // the staked Coins (no Glory penalty); a win keeps them (the upside is amplified
-    // Glory, applied in the per-bet settle functions); a void leaves the stake
-    // untouched. Idempotent via the ledger's (reason, ref_type, ref_id, manager_id)
-    // unique index.
-    if (update.status === 'lost' && bet.stake_coins > 0) {
-      deltas.push({
-        managerId: bet.manager_id,
-        currency: 'coins',
-        amount: -bet.stake_coins,
-        reason: 'stake_loss',
         refType: 'bet',
         refId: bet.id,
       });
@@ -69,6 +62,23 @@ export function settle(input: SettleInput): SettleResult {
         refId: bet.id,
       });
     }
+  }
+
+  // Staking (GAME_DESIGN §5): the match stake is a deliberate investment — the Coins
+  // are spent **either way**, win or lose. We emit one negative `stake_spend` per
+  // manager+match regardless of how the picks landed; the upside is the amplified
+  // Glory each winning pick already earned above (via stake_mult), plus the flat
+  // Coin income on correct picks, which wins some of the stake back. Idempotent via
+  // the ledger's (reason, ref_type, ref_id, manager_id) unique index.
+  for (const [managerId, staked] of stakeByManager) {
+    deltas.push({
+      managerId,
+      currency: 'coins',
+      amount: -staked,
+      reason: 'stake_spend',
+      refType: 'match',
+      refId: match.id,
+    });
   }
 
   return { deltas, betUpdates };
@@ -105,10 +115,10 @@ function outcomeOf(home: number, away: number): 'home' | 'draw' | 'away' {
 
 // The Glory multiplier applied to a winning bet: the knockout-stage multiplier
 // times the Coin stake multiplier, capped at config.stake.max_total_multiplier
-// (×3.0) so stacked bonuses can't cause runaway swings (GAME_DESIGN §5). The stake
-// only ever amplifies a *won* bet — losing bets forfeit the stake instead, and the
-// goal-difference consolation is an independent rubric bonus that the stake never
-// touches.
+// (×3.0) so stacked bonuses can't cause runaway swings (GAME_DESIGN §5). The match
+// stake is paid either way (see `settle`); this multiplier is its upside, applied to
+// every *winning* pick. The goal-difference consolation is an independent rubric
+// bonus that the stake never amplifies.
 function cappedMult(stageMult: number, stakeMult: number, config: LeagueConfig): number {
   return Math.min(stageMult * stakeMult, config.stake.max_total_multiplier);
 }
@@ -163,8 +173,8 @@ function settleExactScore(
   }
 
   // Right outcome + right margin but not exact: a consolation, not a hit. The bet
-  // "lost" (so a stake is forfeited), and the goal-difference Glory uses only the
-  // stage multiplier — the stake never amplifies a losing bet.
+  // "lost", and the goal-difference Glory uses only the stage multiplier — the stake
+  // never amplifies a losing bet.
   if (marginRight) {
     return {
       betId: bet.id,

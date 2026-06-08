@@ -132,29 +132,31 @@ roguelike pacing. All values live in `config.coins.*`, tunable mid-tournament.
 
 ## 5. The hybrid layer — staking Coins for Glory
 
-This is what makes scoring "hybrid" rather than pure-rubric. Before a bet locks, you may attach a **stake** of Coins to it. If the bet **hits**, its Glory is multiplied. If it **misses**, you forfeit the staked Coins (no Glory penalty — your existing Glory is untouched).
+This is what makes scoring "hybrid" rather than pure-rubric. Before a match locks, you may attach a single **stake** of Coins to the whole slip. The stake is a **deliberate investment**: the Coins are spent *either way*, win or lose. In return, **every winning pick on that match** scores amplified Glory. You win some Coins back through the normal flat Coin income on correct picks (§4) — so a strong night is close to break-even on Coins while banking far more Glory.
 
-| Stake | Cost | Glory multiplier on that bet |
+| Stake | Cost | Glory multiplier on every pick |
 | --- | --- | --- |
 | Small | 10¢ | ×1.25 |
 | Medium | 25¢ | ×1.5 |
 | Large | 50¢ | ×2.0 |
 
-- One stake per bet. Stake cap starts at **50¢** (raisable via upgrade).
-- Stake multipliers stack with knockout multipliers but the **total multiplier per bet is capped at ×3.0** to prevent runaway swings.
+- **One stake per match**, not per bet — its own section at the bottom of the slip, applying to the outcome, exact score, and any player prop together. Framed to players as **"Add a multiplier"** (not "stake"); the slip ends with a live **Potential max** counter showing best-case Points across the current picks, updating as picks and the multiplier change.
+- Stake cap starts at **50¢** per match (raisable via upgrade).
+- Stake multipliers stack with knockout multipliers but the **total multiplier per pick is capped at ×3.0** to prevent runaway swings.
 - Staking is opt-in: a player can ignore it entirely and still compete on the fixed rubric.
 
-**Implementation rulings (Phase 3 slice 2):**
-- A stake **hits only when the bet is `won`** — then its Glory is amplified by the
-  capped stage × stake multiplier, and you **keep the Coins** (the stake is a free
-  option, paid for only when wrong).
-- A **miss** (`lost`) forfeits the staked Coins; no Glory is lost.
-- A **void** (e.g. a prop player who never played) leaves the stake untouched.
+**Implementation rulings:**
+- The stake's multiplier amplifies the Glory of **each `won` pick** on the match, via
+  the capped stage × stake multiplier.
+- The staked Coins are spent **either way** — one negative `stake_spend` per
+  manager+match at settlement, regardless of win/loss. There is no separate forfeit
+  and no "keep on win"; the cost is the price of the multiplier.
 - The **goal-difference consolation** on a near-miss exact-score bet is a separate
-  rubric bonus — the stake never amplifies it, and the stake is still forfeited
-  because the exact bet itself lost.
-- Stakes are recorded at submission but **settled lazily** (no upfront Coin hold);
-  the balance check at submission is a point-in-time guard. See `DATA_MODEL.md`.
+  rubric bonus the stake never amplifies (the exact bet itself still counts as a
+  miss), but the match stake is spent regardless like any other.
+- Stakes are recorded at submission but **charged at settlement** (no upfront Coin
+  hold); the submission balance check is a point-in-time guard against over-committing
+  across the slate's open matches. See `DATA_MODEL.md`.
 
 ---
 

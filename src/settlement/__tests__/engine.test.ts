@@ -123,7 +123,7 @@ describe('stake multiplier', () => {
   });
 });
 
-describe('staking (GAME_DESIGN §5)', () => {
+describe('staking (GAME_DESIGN §5) — one stake per match, spent either way', () => {
   test('combined stage × stake multiplier is capped at max_total_multiplier (×3)', () => {
     // final stage ×2.0 and a ×2.0 stake would be ×4.0 — capped to ×3.0.
     const finalMatch: Match = { ...match, stage: 'final', glory_multiplier: 2.0 };
@@ -134,44 +134,60 @@ describe('staking (GAME_DESIGN §5)', () => {
     expect(result.betUpdates[0].pointsAwarded).toBe(30); // 10 * min(2.0*2.0, 3.0) = 10 * 3.0
   });
 
-  test('a staked miss forfeits the staked Coins (negative stake_loss), no Glory penalty', () => {
+  test('a staked miss still spends the Coins (negative stake_spend), no Glory penalty', () => {
     const bet = makeBet({ selection: { result: 'away' }, stake_coins: 25, stake_mult: 1.5 });
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
     expect(result.betUpdates[0].status).toBe('lost');
-    const loss = result.deltas.find(d => d.reason === 'stake_loss');
-    expect(loss?.currency).toBe('coins');
-    expect(loss?.amount).toBe(-25);
-    expect(loss?.refId).toBe('bet-001');
+    const spend = result.deltas.find(d => d.reason === 'stake_spend');
+    expect(spend?.currency).toBe('coins');
+    expect(spend?.amount).toBe(-25);
+    expect(spend?.refType).toBe('match');
+    expect(spend?.refId).toBe(match.id);
     // No Glory movement on a miss.
     expect(result.deltas.filter(d => d.currency === 'glory')).toHaveLength(0);
   });
 
-  test('a staked win keeps the Coins — no stake_loss, only amplified Glory + flat income', () => {
+  test('a staked win also spends the Coins — amplified Glory + flat income, minus the stake', () => {
     const bet = makeBet({ selection: { result: 'home' }, stake_coins: 25, stake_mult: 1.5 });
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
     expect(result.betUpdates[0].pointsAwarded).toBe(15); // 10 * 1.5
-    expect(result.deltas.find(d => d.reason === 'stake_loss')).toBeUndefined();
+    expect(result.deltas.find(d => d.reason === 'stake_spend')?.amount).toBe(-25); // spent either way
     expect(result.deltas.find(d => d.reason === 'bet_coin')?.amount).toBe(5); // flat income unchanged
   });
 
-  test('a staked void leaves the stake untouched (no stake_loss)', () => {
+  test('the match stake is charged once per manager+match, not per pick', () => {
+    // A full slip: stake recorded on the outcome bet, every pick carries the mult.
+    const outcome = makeBet({ id: 'b-out', bet_type: 'outcome', selection: { result: 'home' }, stake_coins: 25, stake_mult: 1.5 });
+    const exact = makeBet({ id: 'b-exact', bet_type: 'exact_score', selection: { home: 2, away: 1 }, stake_coins: 0, stake_mult: 1.5 });
+    const result = settle({ match, bets: [outcome, exact], events: noEvents, config });
+
+    const spends = result.deltas.filter(d => d.reason === 'stake_spend');
+    expect(spends).toHaveLength(1);
+    expect(spends[0].amount).toBe(-25);
+    expect(spends[0].refId).toBe(match.id);
+    // Both picks won and were amplified ×1.5.
+    expect(result.betUpdates.find(u => u.betId === 'b-out')?.pointsAwarded).toBe(15); // 10 * 1.5
+    expect(result.betUpdates.find(u => u.betId === 'b-exact')?.pointsAwarded).toBe(45); // (10+15+5) * 1.5
+  });
+
+  test('props never hold the match stake — an unstaked void emits nothing', () => {
     const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
     const bet = makeBet({
       bet_type: 'anytime_scorer',
       selection: { footballer_id: 'plr-99' }, // did not appear → void
-      stake_coins: 50,
-      stake_mult: 2.0,
+      stake_coins: 0,
+      stake_mult: 1.5,
     });
     const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-1'] });
 
     expect(result.betUpdates[0].status).toBe('void');
-    expect(result.deltas).toHaveLength(0); // no stake_loss, no income
+    expect(result.deltas).toHaveLength(0); // no stake_spend (prop holds no coins), no income
   });
 
-  test('the goal-difference consolation is not amplified by a stake, and the stake is still forfeited', () => {
-    // 3–2 matches the 2–1 margin but isn't exact → status lost (a forfeit), gd Glory only.
+  test('the goal-difference consolation is not amplified by a stake, and the stake is still spent', () => {
+    // 3–2 matches the 2–1 margin but isn't exact → status lost, gd Glory only.
     const bet = makeBet({
       id: 'bet-gd-stake',
       bet_type: 'exact_score',
@@ -183,7 +199,7 @@ describe('staking (GAME_DESIGN §5)', () => {
 
     expect(result.betUpdates[0].status).toBe('lost');
     expect(result.betUpdates[0].pointsAwarded).toBe(5); // gd only, NOT 5 * 2.0
-    expect(result.deltas.find(d => d.reason === 'stake_loss')?.amount).toBe(-50);
+    expect(result.deltas.find(d => d.reason === 'stake_spend')?.amount).toBe(-50);
   });
 });
 

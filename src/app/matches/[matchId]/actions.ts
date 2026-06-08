@@ -94,11 +94,17 @@ export async function submitBet(
     return { error: 'Invalid outcome selection.' };
   }
 
+  // The exact score must agree with the chosen outcome.
+  const impliedResult = homeScore > awayScore ? 'home' : homeScore < awayScore ? 'away' : 'draw';
+  if (impliedResult !== outcomeResult) {
+    return { error: 'Your exact score must match the outcome you picked.' };
+  }
+
   // ─── Staking (GAME_DESIGN §5) ─────────────────────────────────────────────
-  // Each bet may carry a Coin stake that amplifies its Glory on a hit and is
-  // forfeited on a miss. Tiers (cost → multiplier) and the per-bet cap live in
-  // league.config. We validate every stake against the config and the manager's
-  // current balance before writing — settlement trusts stake_coins/stake_mult.
+  // One stake rides the whole match slip, not individual bets. The chosen tier's
+  // multiplier amplifies Glory on *every* winning pick; the Coins are spent either
+  // way (charged once per match at settlement). Tiers (cost → multiplier) and the
+  // per-match cap live in league.config.
   const { data: league } = await db
     .from('league')
     .select('config')
@@ -107,49 +113,35 @@ export async function submitBet(
   const tiers = league?.config.stake.tiers ?? [{ coins: 0, mult: 1.0 }];
   const capCoins = league?.config.stake.cap_coins ?? 0;
 
-  // Map a submitted Coin amount to a valid tier; returns null for anything that
-  // isn't an exact tier value or exceeds the cap.
-  const resolveStake = (raw: string | null): { coins: number; mult: number } | null => {
-    const coins = parseInt((raw ?? '0').trim() || '0', 10);
-    if (isNaN(coins) || coins < 0 || coins > capCoins) return null;
-    return tiers.find(t => t.coins === coins) ?? null;
-  };
+  // Map the submitted Coin amount to a valid tier; null for anything that isn't an
+  // exact tier value or exceeds the cap.
+  const coins = parseInt((formData.get('stake_match') as string | null ?? '0').trim() || '0', 10);
+  if (isNaN(coins) || coins < 0 || coins > capCoins) return { error: 'Invalid stake amount.' };
+  const matchStake = tiers.find(t => t.coins === coins);
+  if (!matchStake) return { error: 'Invalid stake amount.' };
 
-  // Read a stake per bet. Props only carry a stake when the prop is actually set.
-  const stakeInputs: { betType: BetType; raw: string | null }[] = [
-    { betType: 'outcome', raw: formData.get('stake_outcome') as string | null },
-    { betType: 'exact_score', raw: formData.get('stake_exact') as string | null },
-  ];
-  if (chosenProps.length > 0) {
-    stakeInputs.push({ betType: chosenProps[0].betType, raw: formData.get('stake_prop') as string | null });
-  }
-
-  const stakeByType = new Map<BetType, { coins: number; mult: number }>();
-  let totalStaked = 0;
-  for (const { betType, raw } of stakeInputs) {
-    const tier = resolveStake(raw);
-    if (!tier) return { error: 'Invalid stake amount.' };
-    stakeByType.set(betType, tier);
-    totalStaked += tier.coins;
-  }
-
-  // Total committed stake must fit the manager's current Coin balance.
-  if (totalStaked > 0) {
+  // The stake is charged at settlement (not held upfront), so guard against
+  // committing more than the current balance across the slate: this match's stake
+  // plus everything already staked on *other* pending matches must fit the balance.
+  if (matchStake.coins > 0) {
     const { data: me } = await db
       .from('managers')
       .select('coins')
       .eq('id', managerId)
       .single<{ coins: number }>();
     const balance = me?.coins ?? 0;
-    if (totalStaked > balance) {
-      return { error: `Not enough Coins to stake ${totalStaked}¢ (you have ${balance}¢).` };
+    const { data: otherPending } = await db
+      .from('bets')
+      .select('stake_coins')
+      .eq('manager_id', managerId)
+      .eq('status', 'pending')
+      .neq('match_id', matchId);
+    const committedElsewhere = (otherPending ?? []).reduce((s, b) => s + ((b.stake_coins as number) ?? 0), 0);
+    if (committedElsewhere + matchStake.coins > balance) {
+      const extra = committedElsewhere > 0 ? `, ${committedElsewhere}¢ already staked on other matches` : '';
+      return { error: `Not enough Coins to stake ${matchStake.coins}¢ (you have ${balance}¢${extra}).` };
     }
   }
-
-  const stakeFor = (betType: BetType) => {
-    const tier = stakeByType.get(betType) ?? { coins: 0, mult: 1.0 };
-    return { stake_coins: tier.coins, stake_mult: tier.mult };
-  };
 
   // Replace any existing pending bets for this manager + match
   await db
@@ -159,14 +151,17 @@ export async function submitBet(
     .eq('match_id', matchId)
     .eq('status', 'pending');
 
-  const base = { manager_id: managerId, match_id: matchId, locked_at: match.kickoff_at };
+  // Every pick carries the match's stake multiplier (so settlement amplifies each
+  // winning pick); the stake's Coin cost is recorded once, on the mandatory outcome
+  // bet, which settlement reads to charge the match stake a single time.
+  const base = { manager_id: managerId, match_id: matchId, locked_at: match.kickoff_at, stake_mult: matchStake.mult };
   const newBets: Array<Record<string, unknown>> = [
-    { ...base, bet_type: 'outcome', selection: { result: outcomeResult }, ...stakeFor('outcome') },
-    { ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore }, ...stakeFor('exact_score') },
+    { ...base, bet_type: 'outcome', selection: { result: outcomeResult }, stake_coins: matchStake.coins },
+    { ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore }, stake_coins: 0 },
   ];
 
   for (const p of chosenProps) {
-    newBets.push({ ...base, bet_type: p.betType, selection: { footballer_id: p.footballerId }, ...stakeFor(p.betType) });
+    newBets.push({ ...base, bet_type: p.betType, selection: { footballer_id: p.footballerId }, stake_coins: 0 });
   }
 
   const { error } = await db.from('bets').insert(newBets);

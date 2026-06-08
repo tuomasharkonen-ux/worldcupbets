@@ -111,6 +111,11 @@ post-kickoff without blocking launch — upgrades are the spine.
    amplifies. Submission validates each stake against the tiers + cap and the slip
    total against the manager's balance. Migration `004_phase3_staking.sql`; 5 new unit
    tests (31 total green). Applied to Supabase.
+   **Revised later:** staking moved from per-bet to **one stake per match**, spent
+   **either way** (no forfeit/keep distinction) via a single `stake_spend` ledger
+   entry per manager+match; the multiplier now amplifies *every* winning pick on the
+   match. The Coin cost is recouped through normal per-correct-pick income. No schema
+   change (reuses `stake_coins`/`stake_mult`). See GAME_DESIGN §5 / DATA_MODEL.
 3. ✅ **Daily slate view (+ recap, pulled forward from slice 6)** — slates computed
    from `kickoff_at` + `rollover_hour_local` (pure `lib/slate.ts`, DST-safe via
    Helsinki wall-clock parts; the 04:00→previous-slate boundary is tested). `/today` is

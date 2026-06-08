@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
-import { Fredoka, Plus_Jakarta_Sans, Geist_Mono } from 'next/font/google';
+import { Carter_One, Plus_Jakarta_Sans, Geist_Mono } from 'next/font/google';
 import 'flag-icons/css/flag-icons.min.css';
 import './globals.css';
 
-// Display — rounded & bubbly, for headings and the wordmark
-const fredoka = Fredoka({
+// Display — rounded & bubbly, for headings and the wordmark.
+// Carter One ships a single weight (400); bolder display text is synthesised.
+const carterOne = Carter_One({
   subsets: ['latin'],
-  variable: '--font-fredoka',
-  weight: ['400', '500', '600', '700'],
+  variable: '--font-carter-one',
+  weight: ['400'],
 });
 
 // Body / UI — friendly, highly legible
@@ -31,7 +32,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`h-full antialiased ${fredoka.variable} ${jakarta.variable} ${geistMono.variable}`}
+      className={`h-full antialiased ${carterOne.variable} ${jakarta.variable} ${geistMono.variable}`}
     >
       <body className="min-h-full bg-background text-foreground">{children}</body>
     </html>

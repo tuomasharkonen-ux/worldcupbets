@@ -37,7 +37,7 @@ When adding a token used for text, keep it ≥ 4.5:1 (normal) or ≥ 3:1 (large/
 
 ### Fonts (`src/app/layout.tsx`, via `next/font/google`)
 
-- **Fredoka** → `font-display` — rounded, bubbly; headings + wordmark.
+- **Carter One** → `font-display` — rounded, bubbly; headings + wordmark. Single weight (400); bolder display text is synthesised.
 - **Plus Jakarta Sans** → `font-sans` — body / UI default.
 - **Geist Mono** → `font-mono` — scores & numerics (`tabular-nums`).
 

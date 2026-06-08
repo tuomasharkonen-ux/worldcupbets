@@ -155,8 +155,8 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 | `match_id` | uuid FK → matches | |
 | `bet_type` | text | `outcome` \| `exact_score` \| `first_scorer` \| `anytime_scorer` \| `carded` \| `stat_leader` |
 | `selection` | jsonb | shape depends on type (see below) |
-| `stake_coins` | int | 0 if no stake; validated against `config.stake.tiers` + `cap_coins` at submission |
-| `stake_mult` | numeric | the staked tier's Glory multiplier: 1.0 / 1.25 / 1.5 / 2.0 |
+| `stake_coins` | int | the **match** stake in Coins, recorded once on the `outcome` bet (0 on the other picks). Validated against `config.stake.tiers` + `cap_coins` at submission |
+| `stake_mult` | numeric | the staked tier's Glory multiplier: 1.0 / 1.25 / 1.5 / 2.0. Written to **every** pick on the match so settlement amplifies each winning pick |
 | `status` | text | `pending` \| `won` \| `lost` \| `void` |
 | `glory_awarded` | int | filled at settlement |
 | `created_at` | timestamptz | |
@@ -168,17 +168,20 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 - first_scorer / anytime / carded: `{ "footballer_id": "..." }`
 - stat_leader: `{ "footballer_id": "...", "stat": "passes" }`
 
-> **Staking is settle-time, not held upfront (Phase 3 slice 2).** A stake is *not*
-> deducted when the bet is placed — `stake_coins`/`stake_mult` just record the wager.
-> At settlement the engine: amplifies a **won** bet's Glory by the combined stage ×
-> stake multiplier (capped at `max_total_multiplier`); forfeits the staked Coins on a
-> **miss** via a negative `stake_loss` ledger entry; and leaves a **void** untouched
-> (nothing was held to refund). The goal-difference consolation on a near-miss
-> exact-score bet is an independent rubric bonus the stake never amplifies. Because
-> nothing is held, the submission balance check is a point-in-time guard against the
-> slip total, not a reservation — a manager could in principle over-commit across
-> several slates' open bets and dip negative on a bad day. Acceptable at five-player
-> scale; revisit if it bites.
+> **One stake per match, spent either way, settle-time (not held upfront).** A single
+> stake rides the whole match slip, not individual bets — `stake_coins` records it on
+> the `outcome` bet and `stake_mult` is copied onto every pick. The stake is *not*
+> deducted when bets are placed. At settlement the engine: amplifies **every won**
+> pick's Glory by the combined stage × stake multiplier (capped at
+> `max_total_multiplier`); and spends the staked Coins **either way** — one negative
+> `stake_spend` ledger entry per manager+match (`ref_type = 'match'`), win or lose.
+> Staking is a deliberate investment: you pay the Coins regardless, and the flat Coin
+> income on correct picks (GAME_DESIGN §4) wins some of it back. The goal-difference
+> consolation on a near-miss exact-score bet is an independent rubric bonus the stake
+> never amplifies. Because nothing is held, the submission balance check is a
+> point-in-time guard (this match's stake + Coins already staked on other open
+> matches must fit the balance), not a reservation — a manager could still over-commit
+> across slates and dip negative on a bad day. Acceptable at five-player scale.
 
 ### `ledger`
 Append-only. Source of truth for every Glory and Coin movement.
@@ -189,7 +192,7 @@ Append-only. Source of truth for every Glory and Coin movement.
 | `manager_id` | uuid FK → managers | |
 | `currency` | text | `glory` \| `coins` |
 | `amount` | int | signed (negative for spends/losses) |
-| `reason` | text | `bet_win` \| `bet_coin` \| `stake_loss` \| `participation` \| `clean_slate` \| `purchase` \| `sabotage_in` \| `sabotage_out` \| `jinx` … |
+| `reason` | text | `bet_win` \| `bet_coin` \| `stake_spend` \| `participation` \| `clean_slate` \| `purchase` \| `sabotage_in` \| `sabotage_out` \| `jinx` … |
 | `ref_type` | text | `bet` \| `match` \| `slate` \| `item` … |
 | `ref_id` | text | the thing that caused it — a uuid for `bet`/`match`/`item`, or a slate date key (`YYYY-MM-DD`) for `slate`-scoped grants. Widened from uuid to text in migration `005`. |
 | `created_at` | timestamptz | |

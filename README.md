@@ -36,6 +36,8 @@ src/
     fixtures/             upcoming matches + recent results
     matches/[matchId]/    bet slip (page + BetSlip client component + action)
     leaderboard/          Points + Coins ranking
+    today/                daily slate: betting → all-set → settling → recap
+    admin/                hidden preview gallery — every view on mock data (no DB/session)
     api/cron/             fixtures-sync, squads-sync, settle  (CRON_SECRET-guarded)
     api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
   components/
@@ -57,6 +59,10 @@ npm run dev                  # http://localhost:3000
 npm test                     # settlement engine unit tests
 npm run lint                 # eslint + tsc --noEmit
 ```
+
+### Preview gallery (`/admin`)
+
+A hidden, unlinked harness at [`/admin`](http://localhost:3000/admin) for eyeballing and testing every view on fabricated data — no session, no DB, instant. A side-nav switches between: the Today slate in all states (betting, all-set, settling, morning recap, rest day), the match bet slip (fully interactive — outcome/score/props/stakes; Save is a no-op) and a finished/settled match, the full + empty schedule, the leaderboard, the join screen (+ error), and a live **design-system** page (tokens, buttons, badges, cards, inputs, flags, stake chips, dialog, motion). Previews reuse the real components; mock data lives in `src/app/admin/mock.ts`.
 
 ### Environment variables
 

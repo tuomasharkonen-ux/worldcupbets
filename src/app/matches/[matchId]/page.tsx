@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { BetSlip, type SlipSquads } from './BetSlip';
 import { Flag } from '@/components/ui/flag';
+import { currentSlateKey, slateKeyOf } from '@/lib/slate';
 import type { Bet, Footballer, League, Match, Team } from '@/types/db';
 
 type PropField = 'first_scorer' | 'anytime_scorer' | 'carded';
@@ -81,6 +82,44 @@ export default async function MatchPage({
     capCoins: league?.config.stake.cap_coins ?? 0,
     balance: me?.coins ?? 0,
   };
+  const glory = league?.config.glory;
+  const scoring = {
+    stageMult: match.glory_multiplier,
+    maxTotalMult: league?.config.stake.max_total_multiplier ?? 3.0,
+    outcome: glory?.outcome_correct ?? 0,
+    exactBonus: glory?.exact_score_bonus ?? 0,
+    goalDiff: glory?.goal_difference ?? 0,
+    props: {
+      first_scorer: glory?.first_goalscorer ?? 0,
+      anytime_scorer: glory?.anytime_scorer ?? 0,
+      carded: glory?.carded ?? 0,
+    },
+  };
+
+  // Slate stepper: if this match belongs to today's slate, work out its position and
+  // the next match to jump to after saving (null on the last → the all-set screen).
+  const rollover = league?.config.daily?.rollover_hour_local ?? 9;
+  const now = new Date();
+  const todayKey = currentSlateKey(now, rollover);
+  let slate: { index: number; total: number; nextHref: string | null } | undefined;
+  if (slateKeyOf(match.kickoff_at, rollover) === todayKey) {
+    const dayMs = 24 * 60 * 60 * 1000;
+    const slateMidnightUtc = new Date(`${todayKey}T00:00:00Z`).getTime();
+    const { data: windowMatches } = await db
+      .from('matches')
+      .select('id, kickoff_at, status')
+      .gte('kickoff_at', new Date(slateMidnightUtc - dayMs).toISOString())
+      .lte('kickoff_at', new Date(slateMidnightUtc + 2 * dayMs).toISOString())
+      .order('kickoff_at', { ascending: true });
+    const members = (windowMatches ?? []).filter(
+      mm => mm.status !== 'void' && slateKeyOf(mm.kickoff_at as string, rollover) === todayKey,
+    );
+    const idx = members.findIndex(mm => mm.id === matchId);
+    if (idx !== -1) {
+      const next = members[idx + 1];
+      slate = { index: idx + 1, total: members.length, nextHref: next ? `/matches/${next.id}` : null };
+    }
+  }
 
   // Squads for the prop pickers (null until squads-sync has populated them).
   const { data: footballers } = await db
@@ -118,11 +157,8 @@ export default async function MatchPage({
       ? (exactBet.selection as { home: number; away: number })
       : undefined,
     propSlot,
-    stakes: {
-      outcome: outcomeBet?.stake_coins,
-      exact: exactBet?.stake_coins,
-      prop: propBet?.stake_coins,
-    },
+    // One stake for the whole slip — recorded on the outcome bet (GAME_DESIGN §5).
+    stake: outcomeBet?.stake_coins,
   };
 
   const stageLabel = match.group_label ? `Group ${match.group_label}` : match.stage.toUpperCase();
@@ -142,8 +178,8 @@ export default async function MatchPage({
           Fixtures
         </Link>
 
-        {/* Scoreboard */}
-        <Card variant="glass" padding="lg" className="space-y-4">
+        {/* Scoreboard — plain info, not a card */}
+        <div className="space-y-4">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold uppercase tracking-wider text-subtle">
               {stageLabel}
@@ -162,9 +198,9 @@ export default async function MatchPage({
           </div>
 
           <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-            <span className="flex min-w-0 items-center justify-end gap-2 font-display text-lg font-bold leading-tight text-foreground">
+            <span className="flex min-w-0 items-center justify-end gap-2.5 font-display text-xl font-bold leading-tight text-foreground">
               <span className="truncate">{match.home_team.name}</span>
-              <Flag name={match.home_team.name} countryCode={match.home_team.country_code} size="md" />
+              <Flag name={match.home_team.name} countryCode={match.home_team.country_code} size="lg" />
             </span>
             {isFinished && match.home_score != null ? (
               <span className="rounded-xl bg-surface-3 px-3 py-1.5 font-mono text-2xl font-bold tabular-nums text-foreground">
@@ -173,8 +209,8 @@ export default async function MatchPage({
             ) : (
               <span className="text-sm font-medium uppercase text-subtle">vs</span>
             )}
-            <span className="flex min-w-0 items-center gap-2 font-display text-lg font-bold leading-tight text-foreground">
-              <Flag name={match.away_team.name} countryCode={match.away_team.country_code} size="md" />
+            <span className="flex min-w-0 items-center gap-2.5 font-display text-xl font-bold leading-tight text-foreground">
+              <Flag name={match.away_team.name} countryCode={match.away_team.country_code} size="lg" />
               <span className="truncate">{match.away_team.name}</span>
             </span>
           </div>
@@ -183,7 +219,7 @@ export default async function MatchPage({
             <Clock className="size-3.5" aria-hidden />
             {formatKickoff(match.kickoff_at)}
           </p>
-        </Card>
+        </div>
 
         {/* Settled / read-only bets */}
         {settledBets.length > 0 && (
@@ -222,12 +258,15 @@ export default async function MatchPage({
               {locked ? 'Your pending bets' : 'Place your bets'}
             </h2>
             <BetSlip
+              key={matchId}
               matchId={matchId}
               homeTeam={match.home_team.name}
               awayTeam={match.away_team.name}
               locked={locked}
               squads={squads}
               stake={stakeConfig}
+              scoring={scoring}
+              slate={slate}
               existing={existingForSlip}
             />
           </div>

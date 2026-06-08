@@ -37,6 +37,7 @@
   --color-points: #fbbf24;         /* Points — gold */
   --color-points-press: #b8860b;
   --color-success: #34d399;        /* ~9:1 as text on dark */
+  --color-success-press: #0e9d6b;  /* darker base for the 3D "lip" */
   --color-danger: #fb7185;         /* ~6:1 as text on dark */
 
   /* --- Radii: large & bubbly --- */
@@ -47,7 +48,7 @@
 
   /* --- Fonts (wired to next/font CSS vars in layout.tsx) --- */
   --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-fredoka), var(--font-jakarta), sans-serif;
+  --font-display: var(--font-carter-one), var(--font-jakarta), sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
 }
 
