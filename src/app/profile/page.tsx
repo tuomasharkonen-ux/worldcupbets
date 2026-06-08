@@ -6,7 +6,8 @@ import { db } from '@/lib/supabase';
 import { Card, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { updateProfile, changePin, AVATAR_CHOICES } from './actions';
+import { updateProfile, changePin } from './actions';
+import { AVATAR_CHOICES } from './avatars';
 
 const ERROR_MESSAGES: Record<string, string> = {
   missing_name: 'Your name can’t be empty.',

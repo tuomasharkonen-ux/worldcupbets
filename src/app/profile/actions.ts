@@ -3,14 +3,9 @@
 import { db } from '@/lib/supabase';
 import { getSession, requireManager } from '@/lib/session';
 import { hashPin, normalizePin, verifyPin } from '@/lib/pin';
+import { AVATAR_CHOICES } from './avatars';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-
-// Emoji avatars (stored in managers.avatar_url as a plain string — no upload infra).
-export const AVATAR_CHOICES = [
-  '⚽', '🦁', '🐉', '🦅', '🐺', '🦈', '🐅', '🐂',
-  '🔥', '⚡', '👑', '🎯', '💎', '🚀', '🍀', '🎲',
-] as const;
 
 export async function updateProfile(formData: FormData) {
   const { managerId } = await requireManager();
