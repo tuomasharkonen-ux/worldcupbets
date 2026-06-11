@@ -15,7 +15,9 @@ managers ──< bets >── matches ──< match_events
    │                     └──< player_match_stats >── footballers >── teams
    │
    ├──< ledger
-   └──< manager_items (powerups / upgrades / sabotage, owned + active)
+   ├──< manager_items (powerups / upgrades / sabotage, owned + active)
+   ├──< comments (slate-scoped banter feed)
+   └──< reactions (emoji on a comment)
 ```
 
 ---
@@ -200,6 +202,45 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 > matches must fit the balance), not a reservation — a manager could still over-commit
 > across slates and dip negative on a bad day. Acceptable at five-player scale.
 
+### `comments` (migration `010`)
+The match-day banter feed on `/today` (all-set + settling states), scoped to a slate.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid PK | |
+| `slate_key` | text | `YYYY-MM-DD` slate the feed belongs to |
+| `manager_id` | uuid FK → managers | the author |
+| `slip_manager_id` | uuid FK → managers, nullable | **unused** — see note below |
+| `slip_match_id` | uuid FK → matches, nullable | **unused** |
+| `body` | text | ≤500 chars; may be empty when there's a GIF (CHECK: body or gif) |
+| `gif_url` | text, nullable | Giphy media CDN only, validated server-side |
+| `created_at` | timestamptz | |
+
+### `reactions` (migration `010`)
+Emoji reactions on comments. A partial unique index makes one row per
+(manager, comment, emoji), so the server action toggles by delete-or-insert.
+Palette is fixed in `src/lib/social.ts`.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `id` | uuid PK | |
+| `manager_id` | uuid FK → managers | who reacted |
+| `emoji` | text | validated against `REACTION_EMOJIS` |
+| `comment_id` | uuid FK → comments | the comment (nullable in SQL, always set in practice) |
+| `slip_manager_id` | uuid FK → managers, nullable | **unused** |
+| `slip_match_id` | uuid FK → matches, nullable | |
+| `created_at` | timestamptz | |
+
+> **Unused slip columns.** Migration `010` also supported targeting a manager's
+> **slip** — the (manager, match) pair — with comments and reactions; that UI was cut
+> the same day for being too noisy in the bets overview, which is now read-only. The
+> columns, CHECKs, and partial indexes remain (no data, no writes) in case slip
+> targeting returns; nothing in the app sets them.
+
+> Both tables have RLS **enabled with no policies** — unlike the rest of the schema.
+> The app only ever reaches them through the service-role key (which bypasses RLS),
+> so this simply locks the Data API's `anon`/`authenticated` roles out.
+
 ### `ledger`
 Append-only. Source of truth for every Glory and Coin movement.
 
@@ -277,6 +318,9 @@ reads. See `src/settlement/dayclose.ts` (pure) + the `settle` route's slate-clos
 - `ledger (reason, ref_type, ref_id, manager_id)` UNIQUE — idempotency.
 - `matches (status, settled_at)` — the settle job's "what's finished and unsettled" query.
 - `matches (kickoff_at)` — lock checks + upcoming-fixtures view.
+- `comments (slate_key, created_at)` — the day's feed, in order.
+- `reactions (manager_id, comment_id, emoji)` partial UNIQUE — one reaction per comment per emoji; makes the toggle race-safe.
+- `reactions (comment_id)` — fan-in when rendering chips.
 
 ---
 

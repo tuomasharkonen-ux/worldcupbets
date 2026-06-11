@@ -217,6 +217,31 @@ export interface Bet {
   locked_at: string | null;
 }
 
+// Match-day social (migration 010). A comment lives on a slate's feed; it can
+// optionally point at another manager's slip — (slip_manager_id, slip_match_id) —
+// never at a bets row, because bets are deleted + re-inserted on every edit.
+export interface Comment {
+  id: string;
+  slate_key: string;
+  manager_id: string;
+  slip_manager_id: string | null;
+  slip_match_id: string | null;
+  body: string;
+  gif_url: string | null;
+  created_at: string;
+}
+
+// An emoji reaction on exactly one target: a comment, or a slip (manager × match).
+export interface Reaction {
+  id: string;
+  manager_id: string;
+  emoji: string;
+  comment_id: string | null;
+  slip_manager_id: string | null;
+  slip_match_id: string | null;
+  created_at: string;
+}
+
 export interface LedgerEntry {
   id: string;
   manager_id: string;

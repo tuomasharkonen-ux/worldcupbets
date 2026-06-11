@@ -9,11 +9,12 @@ import { Flag } from '@/components/ui/flag';
 import { Countdown } from '@/components/Countdown';
 import { Recap } from '@/app/today/Recap';
 import { ShareBetsButton } from '@/app/today/ShareBetsButton';
+import { Social } from '@/app/today/Social';
 import { slateLabel } from '@/lib/slate';
 import { buildSlateShareText } from '@/lib/share';
 import type { Bet, ExactScoreSelection, FootballerSelection, OutcomeSelection } from '@/types/db';
 import { ScreenFrame } from './ScreenFrame';
-import { MOCK_RECAP, MOCK_RECAP_ROUGH, todayScenario, type MatchRow, type TodayVariant } from '../mock';
+import { MOCK_RECAP, MOCK_RECAP_ROUGH, socialData, todayScenario, type MatchRow, type TodayVariant } from '../mock';
 
 const TIMEZONE = 'Europe/Helsinki';
 
@@ -115,6 +116,7 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
             <p className="font-mono text-xs text-subtle">{settledCount} of {members.length} settled</p>
           </div>
         </Card>
+        <Social data={socialData()} preview />
       </Shell>
     );
   }
@@ -306,6 +308,8 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
           ))}
         </div>
       )}
+
+      {state === 'allset' && <Social data={socialData()} preview />}
     </Shell>
   );
 }

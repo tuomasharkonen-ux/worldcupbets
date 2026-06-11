@@ -14,6 +14,8 @@ import { matchDayNumber } from '@/lib/matchday';
 import { buildSlateShareText, isShareProp } from '@/lib/share';
 import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding, type RecapFavoriteItem } from './Recap';
 import { ShareBetsButton } from './ShareBetsButton';
+import { Social } from './Social';
+import { buildSocialData } from './social-data';
 import type {
   Bet,
   ExactScoreSelection,
@@ -184,6 +186,13 @@ export default async function TodayPage() {
     );
   }
 
+  // The social layer (everyone's bets + the banter feed) lives on the slate from
+  // the moment your slip is in until the recap takes over.
+  const social =
+    state === 'allset' || state === 'settling'
+      ? await buildSocialData({ viewerId: managerId, slateKey, members, now })
+      : null;
+
   // ─── settling (state 3) ────────────────────────────────────────────────────
   if (state === 'settling') {
     const settledCount = members.filter(m => m.settled_at != null).length;
@@ -208,6 +217,7 @@ export default async function TodayPage() {
             <p className="font-mono text-xs text-subtle">{settledCount} of {members.length} settled</p>
           </div>
         </Card>
+        {social && <Social data={social} />}
       </Shell>
     );
   }
@@ -424,6 +434,8 @@ export default async function TodayPage() {
           ))}
         </div>
       )}
+
+      {social && <Social data={social} />}
     </Shell>
   );
 }

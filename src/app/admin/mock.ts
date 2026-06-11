@@ -6,6 +6,7 @@
 
 import type { Bet, BetStatus, Match, Team } from '@/types/db';
 import type { RecapData } from '@/app/today/Recap';
+import type { SocialData } from '@/app/today/Social';
 import type { SlipSquads, SlipPlayer } from '@/app/matches/[matchId]/BetSlip';
 import type { StakeTier } from '@/app/matches/[matchId]/StakeSelector';
 
@@ -201,6 +202,119 @@ export function todayScenario(
     betsByMatch,
     settledCount: 2,
     matchDay: 2,
+  };
+}
+
+// ─── Social: everyone's bets + banter feed ─────────────────────────────────────
+//
+// Mirrors what social-data.ts builds for the all-set/settling states: a read-only
+// bets digest with one row per manager per slate match (alphabetical, like the real
+// builder's display_name order), plus a comments feed with a GIF and reactions.
+
+const SOCIAL_MANAGERS = [
+  { id: 'd', name: 'Aino', avatar: '🍀' },
+  { id: 'b', name: 'Janne', avatar: '⚡' },
+  { id: 'c', name: 'Pekka', avatar: '🦁' },
+  { id: 'a', name: 'Semi', avatar: '🚀' },
+  { id: 'me', name: 'You', avatar: '⚽' },
+];
+
+export function socialData(): SocialData {
+  const slip = (
+    id: string,
+    score: [number, number] | null,
+    outcome: string | null,
+    mult = 1,
+    prop: { label: string; player: string } | null = null,
+  ) => {
+    const mgr = SOCIAL_MANAGERS.find(m => m.id === id)!;
+    return {
+      managerId: mgr.id,
+      name: mgr.name,
+      avatar: mgr.avatar,
+      isYou: mgr.id === 'me',
+      score: score ? { home: score[0], away: score[1] } : null,
+      outcome,
+      mult,
+      prop,
+    };
+  };
+
+  return {
+    slateKey: SLATE_KEY,
+    gifsEnabled: true,
+    matches: [
+      {
+        id: 'm-1',
+        home: 'Brazil', away: 'Croatia', homeCode: 'BRA', awayCode: 'CRO',
+        kickoff: '2026-06-15T16:00:00Z',
+        rows: [
+          slip('d', [1, 1], 'Draw'),
+          slip('b', [3, 0], 'Brazil', 2),
+          slip('c', null, null),
+          slip('a', [2, 0], 'Brazil', 1.25),
+          slip('me', [2, 1], 'Brazil', 1.5, { label: 'First scorer', player: 'A. Striker' }),
+        ],
+      },
+      {
+        id: 'm-2',
+        home: 'France', away: 'Netherlands', homeCode: 'FRA', awayCode: 'NED',
+        kickoff: '2026-06-15T19:00:00Z',
+        rows: [
+          slip('d', [0, 2], 'Netherlands', 2),
+          slip('b', [2, 1], 'France'),
+          slip('c', [1, 1], 'Draw', 1.25),
+          slip('a', [2, 0], 'France'),
+          slip('me', [2, 1], 'France', 1.5, { label: 'Anytime scorer', player: 'A. Striker' }),
+        ],
+      },
+      {
+        id: 'm-3',
+        home: 'Spain', away: 'Japan', homeCode: 'ESP', awayCode: 'JPN',
+        kickoff: '2026-06-15T21:00:00Z',
+        rows: [
+          slip('d', [2, 0], 'Spain'),
+          slip('b', [3, 1], 'Spain', 1.25),
+          slip('c', [1, 2], 'Japan', 2),
+          slip('a', [2, 2], 'Draw'),
+          slip('me', [2, 1], 'Spain', 1.5),
+        ],
+      },
+    ],
+    comments: [
+      {
+        id: 'cm-1',
+        managerId: 'a', name: 'Semi', avatar: '🚀', isYou: false,
+        body: 'Janne staking ×2 on a 3–0… brave or desperate? 😅',
+        gifUrl: null,
+        createdAt: '2026-06-15T09:12:00Z',
+        reactions: [{ emoji: '😂', count: 2, mine: true, names: ['You', 'Pekka'] }],
+      },
+      {
+        id: 'cm-2',
+        managerId: 'b', name: 'Janne', avatar: '⚡', isYou: false,
+        body: 'Scared money don’t make money.',
+        gifUrl: 'https://media.giphy.com/media/l0HU7JI1nzqu8Hbqw/200.gif',
+        createdAt: '2026-06-15T09:15:00Z',
+        reactions: [{ emoji: '🔥', count: 1, mine: false, names: ['Semi'] }],
+      },
+      {
+        id: 'cm-3',
+        managerId: 'me', name: 'You', avatar: '⚽', isYou: true,
+        body: 'Pekka backing Japan against Spain is the boldest call of the day.',
+        gifUrl: null,
+        createdAt: '2026-06-15T10:02:00Z',
+        reactions: [],
+      },
+      {
+        id: 'cm-4',
+        managerId: 'd', name: 'Aino', avatar: '🍀', isYou: false,
+        body: 'Still time to copy my Netherlands pick 👀',
+        gifUrl: null,
+        createdAt: '2026-06-15T11:30:00Z',
+        reactions: [{ emoji: '🤡', count: 3, mine: true, names: ['You', 'Semi', 'Janne'] }],
+      },
+    ],
   };
 }
 
