@@ -124,7 +124,7 @@ export function Social({ data, preview = false }: { data: SocialData; preview?: 
     <>
       {/* Pure information — no interactive elements, so no cards: plain rows on
           the page background, like the betting-state match list. */}
-      <section className="space-y-4">
+      <section className="space-y-4 pt-4">
         <h2 className="px-1 text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
           Everyone’s bets
         </h2>
@@ -133,10 +133,10 @@ export function Social({ data, preview = false }: { data: SocialData; preview?: 
         ))}
       </section>
 
-      <section className="space-y-3">
+      <section className="space-y-3 pt-4">
         {/* Mirrors the page-header pattern (icon + display title + kicker) so the
             feed reads as its own destination, not another list label. */}
-        <div className="flex items-center gap-2.5 pt-2">
+        <div className="flex items-center gap-2.5">
           <MessagesSquare className="size-6 text-primary-bright" aria-hidden />
           <div>
             <h2 className="font-display text-2xl font-bold tracking-tight text-foreground">Banter</h2>

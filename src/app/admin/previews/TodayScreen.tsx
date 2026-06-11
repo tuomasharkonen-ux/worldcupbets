@@ -291,7 +291,7 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
       )}
 
       {state === 'allset' ? (
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 pt-4">
           <h2 className="px-1 text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
             My bets
           </h2>
