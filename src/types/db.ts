@@ -122,6 +122,10 @@ export interface ManagerState {
   // Slate key (YYYY-MM-DD) of the last day-close processed — guards the streak
   // counter against re-running settlement.
   last_closed_slate?: string;
+  // Latest slate (YYYY-MM-DD) whose recap this manager has dismissed. The today page
+  // keeps showing a settled slate's recap until this catches up, so the recap survives
+  // the morning rollover instead of depending on a lucky pre-09:00 page load.
+  recap_seen_slate?: string;
 }
 
 export interface Team {

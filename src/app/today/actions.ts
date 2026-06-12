@@ -4,10 +4,33 @@ import { revalidatePath } from 'next/cache';
 import { db } from '@/lib/supabase';
 import { requireManager } from '@/lib/session';
 import { REACTION_EMOJIS, MAX_COMMENT_CHARS, isAllowedGifUrl } from '@/lib/social';
+import type { ManagerState } from '@/types/db';
 
 const SLATE_KEY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export type SocialActionState = { error?: string };
+
+// Dismiss the recap for a slate ("Next match day" on the recap). Monotonic: the
+// marker only moves forward, so replaying an old form can't resurface a recap.
+export async function markRecapSeen(slateKey: string): Promise<void> {
+  let managerId: string;
+  try {
+    ({ managerId } = await requireManager());
+  } catch {
+    return; // session gone — the page redirect handles it on next load
+  }
+  if (!SLATE_KEY_RE.test(slateKey)) return;
+
+  const { data } = await db.from('managers').select('state').eq('id', managerId).maybeSingle();
+  const state = ((data?.state ?? {}) as ManagerState);
+  if ((state.recap_seen_slate ?? '') < slateKey) {
+    await db
+      .from('managers')
+      .update({ state: { ...state, recap_seen_slate: slateKey } })
+      .eq('id', managerId);
+  }
+  revalidatePath('/today');
+}
 
 export async function postComment(input: {
   slateKey: string;

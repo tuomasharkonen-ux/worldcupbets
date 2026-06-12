@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/cron';
 import { db } from '@/lib/supabase';
-import { getMatchDetail } from '@/lib/football-data';
+import { getCompetitionMatches, getMatchDetail, mapFdStatus } from '@/lib/football-data';
 import { settle } from '@/settlement/engine';
 import { closeSlate } from '@/settlement/dayclose';
 import {
@@ -23,16 +23,80 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    // Flip status/score for matches that have kicked off, so settlement never waits
+    // on the once-daily fixtures-sync. Best-effort: a football-data outage must not
+    // block settling matches that are already marked finished.
+    let statusesSynced = 0;
+    try {
+      statusesSynced = await syncStartedMatchStatuses();
+    } catch (err) {
+      console.error('[settle] status sync failed (continuing):', err);
+    }
     const { settled, slatesClosed } = await settleFinishedMatches();
     // Favorite-team advancement ladder (migration 009). Runs every tick, independent
     // of which matches just finished: a reach-a-stage milestone fires as soon as the
     // knockout fixture appears, and champion/third resolve when those games finish.
     const favTeamAwards = await settleFavoriteTeams();
-    return NextResponse.json({ ok: true, settled, slatesClosed, favTeamAwards });
+    return NextResponse.json({ ok: true, statusesSynced, settled, slatesClosed, favTeamAwards });
   } catch (err) {
     console.error('[settle] error:', err);
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }
+}
+
+// Pull status + score from football-data for every match that has kicked off but
+// isn't finished/void in our DB yet, in one windowed call. This is what lets the
+// hourly morning sweep settle results itself instead of waiting for the daily
+// fixtures-sync at 08:00 Helsinki (the match-day-1 recap was missed exactly because
+// statuses flipped that late and settlement landed seconds after slate rollover).
+async function syncStartedMatchStatuses(): Promise<number> {
+  const now = new Date();
+  const { data: staleRows, error } = await db
+    .from('matches')
+    .select('id, fd_match_id, home_team_id, away_team_id, status')
+    .in('status', ['scheduled', 'live'])
+    .lte('kickoff_at', now.toISOString());
+  if (error) throw error;
+  const stale = staleRows ?? [];
+  if (stale.length === 0) return 0;
+
+  // One window call covers everything started-but-unfinished (a match never spans
+  // more than a day; pad both sides for timezone safety).
+  const dayMs = 24 * 60 * 60 * 1000;
+  const dateFrom = new Date(now.getTime() - 2 * dayMs).toISOString().slice(0, 10);
+  const dateTo = new Date(now.getTime() + dayMs).toISOString().slice(0, 10);
+  const { matches: fdMatches } = await getCompetitionMatches(dateFrom, dateTo);
+  const byFdId = new Map(fdMatches.map(m => [m.id, m]));
+
+  let updated = 0;
+  for (const row of stale) {
+    const fd = byFdId.get(row.fd_match_id as number);
+    if (!fd) continue;
+    const status = mapFdStatus(fd.status);
+    // Skip only when the feed still says not-started; live rows re-write to refresh scores.
+    if (status === 'scheduled' && row.status === 'scheduled') continue;
+    const winnerTeamId =
+      fd.score?.winner === 'HOME_TEAM'
+        ? row.home_team_id
+        : fd.score?.winner === 'AWAY_TEAM'
+          ? row.away_team_id
+          : null;
+    const { error: updErr } = await db
+      .from('matches')
+      .update({
+        status,
+        home_score: fd.score?.fullTime?.home ?? null,
+        away_score: fd.score?.fullTime?.away ?? null,
+        winner_team_id: winnerTeamId,
+      })
+      .eq('id', row.id);
+    if (updErr) {
+      console.error(`[settle] status update for match ${row.id} failed:`, updErr);
+      continue;
+    }
+    updated++;
+  }
+  return updated;
 }
 
 async function settleFinishedMatches(): Promise<{ settled: number; slatesClosed: number }> {

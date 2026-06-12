@@ -180,7 +180,10 @@ function ordinal(n: number): string {
 
 // ─── the recap ────────────────────────────────────────────────────────────────
 
-export function Recap({ data }: { data: RecapData }) {
+// `doneAction` is the server action that records the recap as seen — wired to the
+// "Next match day" button so the page can move on. Optional only for the /admin
+// preview, which renders the recap with mock data and no session.
+export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () => Promise<void> }) {
   const reduced = useReducedMotion();
   const M = data.matches.length;
   // scene indices: 0 title · 1..M matches · M+1 points · M+2 coins · M+3 board · M+4 cta
@@ -419,12 +422,21 @@ export function Recap({ data }: { data: RecapData }) {
         // Wrapped so taps on the buttons don't bubble to the recap's advance handler.
         <div className="mt-5 space-y-2.5" onClick={e => e.stopPropagation()}>
           <ShareBetsButton text={buildRecapShareText(data)} label="Share my results" />
-          <Button asChild variant="ghost" size="lg" className="w-full">
-            <Link href="/today">
-              Next match day
-              <ArrowRight className="size-5" aria-hidden />
-            </Link>
-          </Button>
+          {doneAction ? (
+            <form action={doneAction}>
+              <Button type="submit" variant="ghost" size="lg" className="w-full">
+                Next match day
+                <ArrowRight className="size-5" aria-hidden />
+              </Button>
+            </form>
+          ) : (
+            <Button asChild variant="ghost" size="lg" className="w-full">
+              <Link href="/today">
+                Next match day
+                <ArrowRight className="size-5" aria-hidden />
+              </Link>
+            </Button>
+          )}
         </div>
       )}
     </div>

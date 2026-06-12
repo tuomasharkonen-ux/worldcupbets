@@ -16,6 +16,7 @@ import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinI
 import { ShareBetsButton } from './ShareBetsButton';
 import { Social } from './Social';
 import { buildSocialData } from './social-data';
+import { markRecapSeen } from './actions';
 import type {
   Bet,
   ExactScoreSelection,
@@ -23,6 +24,7 @@ import type {
   League,
   LedgerEntry,
   Manager,
+  ManagerState,
   Match,
   OutcomeSelection,
   Team,
@@ -99,16 +101,57 @@ export default async function TodayPage() {
   const rollover = league?.config.daily?.rollover_hour_local ?? 9;
 
   const now = new Date();
+
+  // ─── pending recap ───────────────────────────────────────────────────────────
+  // A settled slate's recap stays pending until this manager dismisses it ("Next
+  // match day"), tracked in managers.state.recap_seen_slate. Anchoring on the most
+  // recent fully-settled slate — not on the current slate — means the recap survives
+  // the 09:00 rollover: settlement landing after rollover (as on match day 1) just
+  // shows the recap on the next load instead of never.
+  const { data: managerRow } = await db
+    .from('managers')
+    .select('state')
+    .eq('id', managerId)
+    .maybeSingle();
+  const seenSlate = ((managerRow?.state ?? {}) as ManagerState).recap_seen_slate ?? '';
+
+  const { data: lastSettledRows } = await db
+    .from('matches')
+    .select('kickoff_at')
+    .not('settled_at', 'is', null)
+    .neq('status', 'void')
+    .order('kickoff_at', { ascending: false })
+    .limit(1);
+  const lastSettledKickoff = lastSettledRows?.[0]?.kickoff_at as string | undefined;
+  if (lastSettledKickoff) {
+    const recapSlateKey = slateKeyOf(lastSettledKickoff, rollover);
+    if (seenSlate < recapSlateKey) {
+      const recapMembers = await fetchSlateMembers(recapSlateKey, rollover);
+      if (recapMembers.length > 0 && recapMembers.every(m => m.settled_at != null)) {
+        const { data: recapBetRows } = await db
+          .from('bets')
+          .select('*')
+          .eq('manager_id', managerId)
+          .in('match_id', recapMembers.map(m => m.id));
+        const recap = await buildRecap(managerId, recapSlateKey, recapMembers, (recapBetRows ?? []) as Bet[]);
+        return (
+          <Shell>
+            <Recap data={recap} doneAction={markRecapSeen.bind(null, recapSlateKey)} />
+          </Shell>
+        );
+      }
+    }
+  }
+
   let slateKey = currentSlateKey(now, rollover);
   let members = await fetchSlateMembers(slateKey, rollover);
 
-  // If the current slate has no fixtures (a rest day), jump ahead to the next slate
-  // that does. We always surface the next *known* matches — with betting open until
-  // their kickoff — rather than a dead-end "nothing today". The current slate is only
-  // empty here because last night's slate has already rolled over, so there's no recap
-  // to preserve.
+  // If the current slate has no fixtures (a rest day) — or it's fully settled and its
+  // recap has been dismissed above — jump ahead to the next slate that has matches.
+  // We always surface the next *known* matches, with betting open until their kickoff,
+  // rather than a dead-end "nothing today".
   let isUpcoming = false;
-  if (members.length === 0) {
+  if (members.length === 0 || members.every(m => m.settled_at != null)) {
     const { data: nextRows } = await db
       .from('matches')
       .select('kickoff_at')
@@ -121,6 +164,8 @@ export default async function TodayPage() {
       slateKey = slateKeyOf(nextKickoff, rollover);
       members = await fetchSlateMembers(slateKey, rollover);
       isUpcoming = true;
+    } else {
+      members = []; // settled slate with nothing ahead → fall to the empty state
     }
   }
 
@@ -164,27 +209,18 @@ export default async function TodayPage() {
     return bs.some(b => b.bet_type === 'outcome') && bs.some(b => b.bet_type === 'exact_score');
   };
 
-  const anyFinished = members.some(m => m.status === 'finished');
-  const allSettled = members.every(m => m.settled_at != null);
+  // Once the slate's last match has kicked off nothing is editable any more, so the
+  // page flips to "results are coming in" right away — not when the first result
+  // lands in the database. (A fully settled slate never reaches here: the recap or
+  // the jump-ahead above already claimed it.)
+  const lastKickoffPassed = now >= new Date(members[members.length - 1].kickoff_at);
   const coreCompleteAll = members.every(m => hasCompleteCore(m.id));
 
-  const state: 'recap' | 'settling' | 'allset' | 'betting' = allSettled
-    ? 'recap'
-    : anyFinished
-      ? 'settling'
-      : coreCompleteAll
-        ? 'allset'
-        : 'betting';
-
-  // ─── recap (state 4) ─────────────────────────────────────────────────────────
-  if (state === 'recap') {
-    const recap = await buildRecap(managerId, slateKey, members, myBets);
-    return (
-      <Shell>
-        <Recap data={recap} />
-      </Shell>
-    );
-  }
+  const state: 'settling' | 'allset' | 'betting' = lastKickoffPassed
+    ? 'settling'
+    : coreCompleteAll
+      ? 'allset'
+      : 'betting';
 
   // The social layer (everyone's bets + the banter feed) lives on the slate from
   // the moment your slip is in until the recap takes over.

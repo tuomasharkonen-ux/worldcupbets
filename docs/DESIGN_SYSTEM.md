@@ -141,15 +141,19 @@ final state of the *same* surface, not a separate page.
    bets per match, a countdown to first kickoff, and your coins/shop access. Bets stay
    editable until each match's own kickoff lock (power-ups + Accumulator lock at the
    slate's first kickoff). This is the "come back tonight" resting state.
-3. **Settling / waiting for results** — from the first morning cron (~06:00 Helsinki)
-   until the whole slate is settled. The screen flips to recap mode but shows a clear
-   **"Results are still coming in — check back soon"** state instead of the celebration.
-   Settlement is a multi-run sweep (06:00–10:00), so this state can persist for a while;
-   it must read as *expected*, not broken. Show **progress only** (e.g. "3 of 5 settled")
-   — the actual results, points, and coins stay **hidden** so the full reveal lands all
-   at once. No peeking at individual outcomes during the wait.
+3. **Settling / waiting for results** — from the moment the slate's **last match has
+   kicked off** (nothing is editable any more) until the whole slate is settled. The
+   screen flips to recap mode but shows a clear **"Results are still coming in — check
+   back soon"** state instead of the celebration. Settlement is a multi-run sweep
+   (06:00–10:00 Helsinki), so this state can persist for a while; it must read as
+   *expected*, not broken. Show **progress only** (e.g. "3 of 5 settled") — the actual
+   results, points, and coins stay **hidden** so the full reveal lands all at once. No
+   peeking at individual outcomes during the wait.
 4. **Recap ready** — once **every** match on the slate has `settled_at`, the full
-   sequenced reveal (below) unlocks.
+   sequenced reveal (below) unlocks. The recap stays **pending per manager** until they
+   dismiss it with "Next match day" (`managers.state.recap_seen_slate`), so it survives
+   the 09:00 slate rollover — settlement landing late just means you see it on your
+   next visit instead of never.
 
 "Ready" is a data condition (all slate matches settled), not just a clock time — a match
 still in play or awaiting data keeps the screen in state 3 rather than revealing a

@@ -50,9 +50,9 @@ Each cron hits a protected API route (guarded by a `CRON_SECRET` bearer header s
 | Job | Cadence (as deployed) | Trigger | Responsibility |
 | --- | --- | --- | --- |
 | `fixtures-sync` | Daily, 08:00 Helsinki (05:00 UTC) | Vercel Cron (`vercel.json`) | Pull/refresh the fixture list, kickoff times, stages, and (later) squad rosters from football-data.org. Upsert into `matches`, `teams`, `footballers`. |
-| `settle` | Twice daily, 03:00 + 08:00 Helsinki | External — [cron-job.org](https://cron-job.org) | Find matches that are finished but `settled_at IS NULL`, run the settlement engine, write ledger entries, recompute cached balances, set `settled_at`. |
+| `settle` | Hourly, 06:00–10:00 Helsinki | External — [cron-job.org](https://cron-job.org) | First **sync status/score** for every match that has kicked off but isn't finished yet (one windowed football-data call — so settlement never waits for the daily `fixtures-sync`), then find matches that are finished but `settled_at IS NULL`, run the settlement engine, write ledger entries, recompute cached balances, set `settled_at`. |
 
-> **Why two cron providers?** The Vercel **Hobby** plan caps cron jobs at *daily cadence* and *two jobs total*. The WC2026 schedule (US venues) gives Finnish viewers two match clusters — evenings (~21:00–01:30) and early mornings (~03:00–07:30). Settling once a day would leave the morning cluster unsettled for nearly 24 h, so `settle` was moved to cron-job.org, which allows arbitrary schedules for free. The two settle runs (03:00 catches the evening cluster, 08:00 catches the morning cluster) are safe to overlap with anything thanks to idempotency.
+> **Why two cron providers?** The Vercel **Hobby** plan caps cron jobs at *daily cadence* and *two jobs total*. The WC2026 schedule (US venues) gives Finnish viewers two match clusters — evenings (~21:00–01:30) and early mornings (~03:00–07:30). Settling once a day would leave the morning cluster unsettled for nearly 24 h, so `settle` was moved to cron-job.org, which allows arbitrary schedules for free. The hourly morning sweep is safe to overlap with anything thanks to idempotency.
 
 > **Optimization, not required for v1:** make `settle` cheap when nothing's happening by early-returning if no match has finished since the last run. During match windows it does real work; overnight it's a no-op.
 

@@ -70,6 +70,17 @@ export interface FdMatchDetail {
   substitutions?: FdSubstitution[];
 }
 
+// One row of GET /competitions/{code}/matches — just the fields status sync needs.
+export interface FdMatchSummary {
+  id: number;
+  status: string;
+  utcDate: string;
+  score?: {
+    winner?: 'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' | null;
+    fullTime?: { home: number | null; away: number | null };
+  };
+}
+
 export interface FdTeamWithSquad {
   id: number;
   name: string;
@@ -88,4 +99,31 @@ export function getMatchDetail(fdMatchId: number): Promise<FdMatchDetail> {
 // Competition teams. The free tier embeds a (sometimes partial) `squad` per team.
 export function getCompetitionTeams(): Promise<{ teams: FdTeamWithSquad[] }> {
   return fdFetch<{ teams: FdTeamWithSquad[] }>(`/competitions/${WC_COMPETITION}/teams`);
+}
+
+// Competition matches in a UTC date window (YYYY-MM-DD, inclusive). One call covers
+// a whole match day — used by the settle cron to flip statuses without per-match fetches.
+export function getCompetitionMatches(
+  dateFrom: string,
+  dateTo: string,
+): Promise<{ matches: FdMatchSummary[] }> {
+  return fdFetch<{ matches: FdMatchSummary[] }>(
+    `/competitions/${WC_COMPETITION}/matches?dateFrom=${dateFrom}&dateTo=${dateTo}`,
+  );
+}
+
+// football-data status → our matches.status enum. Shared by fixtures-sync and the
+// settle cron's status sweep so the two can never drift.
+export function mapFdStatus(fdStatus: string): 'scheduled' | 'live' | 'finished' | 'void' {
+  const map: Record<string, 'scheduled' | 'live' | 'finished' | 'void'> = {
+    SCHEDULED: 'scheduled',
+    TIMED: 'scheduled',
+    IN_PLAY: 'live',
+    PAUSED: 'live',
+    FINISHED: 'finished',
+    SUSPENDED: 'void',
+    POSTPONED: 'void',
+    CANCELLED: 'void',
+  };
+  return map[fdStatus] ?? 'scheduled';
 }

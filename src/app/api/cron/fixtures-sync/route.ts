@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/cron';
 import { db } from '@/lib/supabase';
+import { mapFdStatus } from '@/lib/football-data';
 
 // Vercel Cron: daily at 06:00 UTC — pulls fixtures + teams from football-data.org
 export async function GET(req: NextRequest) {
@@ -71,7 +72,7 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
     if (!homeTeam || !awayTeam) continue;
 
     const stage = mapStage(m.stage);
-    const status = mapStatus(m.status);
+    const status = mapFdStatus(m.status);
 
     // The true winner — needed for the favorite-team ladder, since a knockout decided
     // on penalties leaves fullTime level. score.winner reflects the actual result
@@ -117,20 +118,6 @@ function mapStage(fdStage: string): string {
     FINAL: 'final',
   };
   return map[fdStage] ?? 'group';
-}
-
-function mapStatus(fdStatus: string): string {
-  const map: Record<string, string> = {
-    SCHEDULED: 'scheduled',
-    TIMED: 'scheduled',
-    IN_PLAY: 'live',
-    PAUSED: 'live',
-    FINISHED: 'finished',
-    SUSPENDED: 'void',
-    POSTPONED: 'void',
-    CANCELLED: 'void',
-  };
-  return map[fdStatus] ?? 'scheduled';
 }
 
 function pointsMultiplier(stage: string): number {
