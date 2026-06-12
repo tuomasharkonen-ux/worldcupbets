@@ -131,6 +131,15 @@ function Confetti({ run }: { run: boolean }) {
   );
 }
 
+// Small numbered marker for the end-of-recap step guide.
+function StepDot({ n }: { n: number }) {
+  return (
+    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-surface-3 font-mono text-[0.7rem] font-bold text-foreground">
+      {n}
+    </span>
+  );
+}
+
 const RESULT_STYLE = {
   won: { color: 'text-success', Icon: CheckCircle2, tag: 'HIT' },
   lost: { color: 'text-danger', Icon: XCircle, tag: 'MISS' },
@@ -419,24 +428,38 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
           Tap to continue <ChevronRight className="size-3.5" aria-hidden />
         </p>
       ) : (
-        // Wrapped so taps on the buttons don't bubble to the recap's advance handler.
-        <div className="mt-5 space-y-2.5" onClick={e => e.stopPropagation()}>
-          <ShareBetsButton text={buildRecapShareText(data)} label="Share my results" />
-          {doneAction ? (
-            <form action={doneAction}>
-              <Button type="submit" variant="ghost" size="lg" className="w-full">
-                Next match day
-                <ArrowRight className="size-5" aria-hidden />
+        // Step-by-step send-off: share first, then move on — both full-weight buttons
+        // so neither outshines the other. Wrapped so taps on the buttons don't bubble
+        // to the recap's advance handler.
+        <div className="mt-6 space-y-5" onClick={e => e.stopPropagation()}>
+          <div className="space-y-2">
+            <p className="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wider text-subtle">
+              <StepDot n={1} />
+              First — share the night
+            </p>
+            <ShareBetsButton text={buildRecapShareText(data)} label="Share my results" />
+          </div>
+          <div className="space-y-2">
+            <p className="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wider text-subtle">
+              <StepDot n={2} />
+              Then — on to the next one
+            </p>
+            {doneAction ? (
+              <form action={doneAction}>
+                <Button type="submit" variant="primary" size="lg" className="w-full">
+                  Next match day
+                  <ArrowRight className="size-5" aria-hidden />
+                </Button>
+              </form>
+            ) : (
+              <Button asChild variant="primary" size="lg" className="w-full">
+                <Link href="/today">
+                  Next match day
+                  <ArrowRight className="size-5" aria-hidden />
+                </Link>
               </Button>
-            </form>
-          ) : (
-            <Button asChild variant="ghost" size="lg" className="w-full">
-              <Link href="/today">
-                Next match day
-                <ArrowRight className="size-5" aria-hidden />
-              </Link>
-            </Button>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>
