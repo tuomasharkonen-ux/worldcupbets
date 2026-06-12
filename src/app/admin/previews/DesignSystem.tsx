@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Flag } from '@/components/ui/flag';
 import { InfoTip } from '@/components/ui/tooltip';
+import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -146,6 +147,27 @@ export function DesignSystem() {
           <Input type="number" placeholder="0" className="text-center font-mono" />
           <Input disabled placeholder="Disabled" />
           <Input defaultValue="Pre-filled value" />
+        </Card>
+      </Section>
+
+      {/* Skeletons */}
+      <Section title="Loading skeletons">
+        <Card variant="glass" padding="lg" className="space-y-4">
+          <p className="text-sm text-muted">
+            Shimmering placeholders for route <code className="font-mono text-foreground">loading.tsx</code>{' '}
+            fallbacks — shown the instant navigation starts so pages feel responsive.
+          </p>
+          <div className="flex items-center gap-4">
+            <Skeleton className="size-16 rounded-3xl" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-5 w-40" />
+              <Skeleton className="h-4 w-24" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Skeleton className="h-16 rounded-2xl" />
+            <Skeleton className="h-16 rounded-2xl" />
+          </div>
         </Card>
       </Section>
 

@@ -59,6 +59,16 @@ Headless-ish primitives styled with [CVA](https://cva.style) + the `cn()` helper
 - **`InfoTip`** — tap-to-toggle info bubble (hover tooltips don't exist on
   touch): ⓘ trigger + dismissable bubble, scrim-backed so any outside tap
   closes it. Used for the player-form legend in the prop picker.
+- **`Skeleton`** — a single shimmering placeholder block (`.skeleton` in
+  `globals.css`: a faint light sweeps across, collapsing to a static tint under
+  the reduced-motion guard). Compose these inside a route's `loading.tsx` to
+  mirror the shape of the page that's streaming in, so navigation feels instant.
+  Pages are server components with several sequential Supabase queries, so without
+  a Suspense fallback a click blocks on the full server render. Each main route
+  (`today`, `fixtures`, `leaderboard`, `profile`, `matches/[matchId]`) has a
+  `loading.tsx`; `NavSkeleton` (`src/components/NavSkeleton.tsx`) renders the
+  static top-bar chrome + the real `BottomTabs` so the nav never flickers during
+  the swap — keep its top-bar markup in sync with `Nav.tsx`.
 
 Icons: **lucide-react** for UI chrome (no emojis as icons). Decorative icons
 get `aria-hidden`; icon-only controls get `aria-label`. Emoji is fine as

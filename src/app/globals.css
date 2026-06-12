@@ -208,6 +208,31 @@
 .animate-flare    { animation: flare-pulse 4s ease-in-out infinite; }
 .confetti-piece   { animation: confetti-fall 0.9s ease-out forwards; }
 
+/* ─── Loading skeletons ───────────────────────────────────────────────────────
+   Placeholder blocks shown by route-level loading.tsx files while a server page
+   streams in, so navigation feels instant. A faint light sweeps across each block;
+   the global reduced-motion guard below collapses the sweep to a static tint. */
+@keyframes skeleton-sweep { 100% { transform: translateX(100%); } }
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background-color: color-mix(in oklab, var(--color-surface-2) 75%, transparent);
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-foreground) 7%, transparent),
+    transparent
+  );
+  animation: skeleton-sweep 1.6s ease-in-out infinite;
+}
+
 /* ─── Match-tier celebrations — the FIFA-pack reveal (DESIGN_SYSTEM §recap) ────
    Applied to a match slip the instant its last pick lands. Tier = winning picks on
    the slip: 3+ legendary (gold) · 2 epic (purple) · 1 rare (green) · 0 common
