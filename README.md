@@ -36,6 +36,7 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 ```
 src/
   app/
+    opengraph-image.tsx   OG/social share image (next/og, brand colors + country flags; fonts in assets/fonts/)
     join/                 passcode + PIN login/signup flow (page + server action)
     onboarding/           first-login favorite team + player picker (page + client picker + action)
     profile/              edit name, avatar, PIN, view locked favorites; sign out (page + server actions)
