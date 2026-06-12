@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/fixtures-sync",
       "schedule": "0 5 * * *"
+    },
+    {
+      "path": "/api/cron/squads-sync",
+      "schedule": "30 4 * * *"
     }
   ]
 }

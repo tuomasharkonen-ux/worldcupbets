@@ -17,8 +17,9 @@ the news can be wrong, and a player who never appears just voids the prop.
 Do this **each morning of a match day**, before the first kickoff of the slate
 (bets lock per match at kickoff, so the morning sweep covers everyone):
 
-1. **Refresh squads** — pulls official 26-man lists and auto-marks players who
-   were replaced as `out` ("Withdrawn from squad"):
+1. **Squads refresh themselves** — a daily Vercel cron (04:30 UTC) pulls the
+   official 26-man lists and auto-marks players who were replaced as `out`
+   ("Withdrawn from squad"). Manual trigger only for an immediate refresh:
 
    ```sh
    curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/squads-sync
@@ -44,8 +45,8 @@ Do this **each morning of a match day**, before the first kickoff of the slate
    to `fit` (and null the note) once a player returns — squads-sync only auto-clears
    flags it set itself.
 
-Asking Claude Code to "run the injury update" does all three steps: it researches
-per-fixture team news, sets the flags, and re-runs squads-sync.
+Asking Claude Code to "run the injury update" covers steps 2–3 (research +
+flags via the Supabase MCP) with no secrets involved; step 1 is the daily cron.
 
 ## Cadence
 

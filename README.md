@@ -91,7 +91,7 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/fixtures-sync
   ```
-- **Sync squads** (run once after final 26-man squads are confirmed, ~June 1, and again on any revision — needed before player props can be picked or settled; also marks players dropped from the official list as `out`):
+- **Sync squads** (daily at 04:30 UTC via Vercel cron — pulls 26-man lists and marks players dropped from the official list as `out`; manual trigger for an immediate refresh):
   ```
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/squads-sync
   ```

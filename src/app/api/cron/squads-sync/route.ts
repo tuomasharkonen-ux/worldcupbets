@@ -3,10 +3,10 @@ import { verifyCronSecret } from '@/lib/cron';
 import { db } from '@/lib/supabase';
 import { getCompetitionTeams } from '@/lib/football-data';
 
-// Manual-trigger sync: pulls 26-man squads from football-data.org into
-// `footballers`. Heavy (one team at a time) and only needs running once squads
-// are confirmed (~June 1) and again if a team revises its list. Not on a Vercel
-// cron — trigger by hand with the CRON_SECRET when ready.
+// Pulls 26-man squads from football-data.org into `footballers` and marks
+// players dropped from the official list as out. Runs daily at 04:30 UTC via
+// Vercel cron (which sends the CRON_SECRET bearer itself) so mid-tournament
+// squad replacements flow in without a manual trigger. For an immediate refresh:
 //
 //   curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/squads-sync
 export async function GET(req: NextRequest) {
