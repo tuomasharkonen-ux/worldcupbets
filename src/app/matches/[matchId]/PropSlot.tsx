@@ -4,12 +4,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, Pencil, Plus, Search, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Flag } from '@/components/ui/flag';
+import { InfoTip } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/dialog';
+import type { PlayerFormStats } from '@/lib/player-form';
 
 export type PropType = 'first_scorer' | 'anytime_scorer' | 'carded';
 
@@ -18,6 +20,8 @@ export interface SlipPlayer {
   name: string;
   squad_number: number | null;
   position: string | null;
+  /** Tournament form (absent until the player's team has a settled match). */
+  form?: PlayerFormStats;
 }
 
 export interface SlipSquads {
@@ -67,6 +71,15 @@ function relevanceRank(cat: PosCat | null, kind: PropType): number {
   const order: PosCat[] = kind === 'carded' ? ['DEF', 'MID', 'FWD', 'GK'] : ['FWD', 'MID', 'DEF', 'GK'];
   const i = cat ? order.indexOf(cat) : -1;
   return i === -1 ? order.length : i; // unknown position sinks to the bottom
+}
+
+// One compact mono token per stat — zeroes stay silent so quiet rows stay quiet.
+function formTokens(form: PlayerFormStats): string {
+  const bits = [`${form.apps}M`];
+  if (form.goals > 0) bits.push(`⚽${form.goals}`);
+  if (form.yellows > 0) bits.push(`🟨${form.yellows}`);
+  if (form.reds > 0) bits.push(`🟥${form.reds}`);
+  return bits.join(' ');
 }
 
 interface SlotValue {
@@ -176,6 +189,9 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
               <p className="truncate font-display text-sm font-semibold text-foreground">
                 {chosenPlayer ? fmtPlayer(chosenPlayer) : 'Unknown player'}
               </p>
+              {chosenPlayer?.form?.suspended && (
+                <p className="text-xs font-medium text-danger">Suspended — set to miss this match</p>
+              )}
             </div>
             {!locked && (
               <div className="flex shrink-0 items-center gap-1">
@@ -255,16 +271,25 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
               </div>
               <DialogDescription className="sr-only">Choose a player for this prop.</DialogDescription>
 
-              <div className="relative mt-4">
-                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" aria-hidden />
-                <Input
-                  autoFocus
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  placeholder="Search players…"
-                  className="pl-9"
-                  aria-label="Search players"
-                />
+              <div className="mt-4 flex items-center gap-1.5">
+                <div className="relative flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" aria-hidden />
+                  <Input
+                    autoFocus
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Search players…"
+                    className="pl-9"
+                    aria-label="Search players"
+                  />
+                </div>
+                <InfoTip label="What do the player stats mean?">
+                  Form at this World Cup: <span className="font-mono text-foreground">2M</span> = played 2
+                  matches, <span className="font-mono text-foreground">⚽</span> goals scored (penalties
+                  count, own goals don&rsquo;t), <span className="font-mono text-foreground">🟨 🟥</span>{' '}
+                  cards. <span className="font-mono font-bold text-danger">SUSP</span> = suspended for this
+                  match after a red card or two yellows.
+                </InfoTip>
               </div>
 
               {hasPositions && (
@@ -321,6 +346,17 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                                     {p.squad_number ?? '—'}
                                   </span>
                                   <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                                  {p.form?.suspended ? (
+                                    <span className="shrink-0 rounded-md bg-[color-mix(in_oklab,var(--color-danger)_18%,transparent)] px-1.5 py-0.5 font-mono text-[0.65rem] font-bold text-danger">
+                                      SUSP
+                                    </span>
+                                  ) : (
+                                    p.form && (
+                                      <span className="shrink-0 font-mono text-[0.65rem] tabular-nums text-subtle">
+                                        {formTokens(p.form)}
+                                      </span>
+                                    )
+                                  )}
                                   {cat && (
                                     <span className={`shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[0.65rem] font-bold ${POS_BADGE[cat]}`}>
                                       {cat}

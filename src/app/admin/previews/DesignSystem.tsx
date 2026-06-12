@@ -7,6 +7,7 @@ import { Card, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Flag } from '@/components/ui/flag';
+import { InfoTip } from '@/components/ui/tooltip';
 import {
   Dialog,
   DialogContent,
@@ -164,6 +165,18 @@ export function DesignSystem() {
       <Section title="Stake selector">
         <Card variant="glass" padding="lg">
           <StakeSelector name="ds_stake" tiers={MOCK_STAKE.tiers} capCoins={MOCK_STAKE.capCoins} balance={MOCK_STAKE.balance} />
+        </Card>
+      </Section>
+
+      {/* Info tip */}
+      <Section title="Info tip">
+        <Card variant="glass" padding="lg" className="flex items-center gap-2">
+          <span className="text-sm text-muted">Tap-to-toggle info bubble (used for the player form legend)</span>
+          <InfoTip label="Example info tip">
+            Form at this World Cup: <span className="font-mono text-foreground">2M</span> = played 2 matches,{' '}
+            <span className="font-mono text-foreground">⚽</span> goals,{' '}
+            <span className="font-mono text-foreground">🟨 🟥</span> cards.
+          </InfoTip>
         </Card>
       </Section>
 

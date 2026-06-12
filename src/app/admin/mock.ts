@@ -470,35 +470,48 @@ export const MOCK_RECAP_ROUGH: RecapData = {
 
 // ─── Bet slip (match detail) ─────────────────────────────────────────────────
 
-function player(id: string, name: string, num: number, position: string): SlipPlayer {
-  return { id, name, squad_number: num, position };
+function player(
+  id: string,
+  name: string,
+  num: number,
+  position: string,
+  form?: SlipPlayer['form'],
+): SlipPlayer {
+  return { id, name, squad_number: num, position, form };
 }
 
+// Tournament form shorthand for the picker badges (PlayerFormStats).
+function form(apps: number, goals = 0, yellows = 0, reds = 0, suspended = false) {
+  return { apps, goals, yellows, reds, suspended };
+}
+
+// Both squads two group games in — covers every picker badge state: scorers,
+// booked players, an unused sub (0M) and a suspended pick (Brozović).
 export const MOCK_SQUADS: SlipSquads = {
   homeTeam: 'Brazil',
   awayTeam: 'Croatia',
   homePlayers: [
-    player('b-1', 'Alisson', 1, 'Goalkeeper'),
-    player('b-2', 'Danilo', 2, 'Right-Back'),
-    player('b-3', 'Marquinhos', 4, 'Centre-Back'),
-    player('b-4', 'Éder Militão', 3, 'Centre-Back'),
-    player('b-5', 'Casemiro', 5, 'Defensive Midfield'),
-    player('b-6', 'Bruno Guimarães', 8, 'Central Midfield'),
-    player('b-7', 'Rodrygo', 10, 'Right Winger'),
-    player('b-8', 'Vinícius Jr.', 7, 'Left Winger'),
-    player('b-9', 'Raphinha', 11, 'Right Winger'),
-    player('b-10', 'Endrick', 9, 'Centre-Forward'),
+    player('b-1', 'Alisson', 1, 'Goalkeeper', form(2)),
+    player('b-2', 'Danilo', 2, 'Right-Back', form(2, 0, 1)),
+    player('b-3', 'Marquinhos', 4, 'Centre-Back', form(2)),
+    player('b-4', 'Éder Militão', 3, 'Centre-Back', form(1)),
+    player('b-5', 'Casemiro', 5, 'Defensive Midfield', form(2, 0, 1)),
+    player('b-6', 'Bruno Guimarães', 8, 'Central Midfield', form(2)),
+    player('b-7', 'Rodrygo', 10, 'Right Winger', form(2, 1)),
+    player('b-8', 'Vinícius Jr.', 7, 'Left Winger', form(2, 2)),
+    player('b-9', 'Raphinha', 11, 'Right Winger', form(2, 1)),
+    player('b-10', 'Endrick', 9, 'Centre-Forward', form(0)),
   ],
   awayPlayers: [
-    player('c-1', 'Dominik Livaković', 1, 'Goalkeeper'),
-    player('c-2', 'Joško Gvardiol', 20, 'Centre-Back'),
-    player('c-3', 'Josip Stanišić', 2, 'Right-Back'),
-    player('c-4', 'Mateo Kovačić', 8, 'Central Midfield'),
-    player('c-5', 'Luka Modrić', 10, 'Central Midfield'),
-    player('c-6', 'Marcelo Brozović', 11, 'Defensive Midfield'),
-    player('c-7', 'Ivan Perišić', 4, 'Left Winger'),
-    player('c-8', 'Andrej Kramarić', 9, 'Centre-Forward'),
-    player('c-9', 'Bruno Petković', 16, 'Centre-Forward'),
+    player('c-1', 'Dominik Livaković', 1, 'Goalkeeper', form(2)),
+    player('c-2', 'Joško Gvardiol', 20, 'Centre-Back', form(2, 0, 1)),
+    player('c-3', 'Josip Stanišić', 2, 'Right-Back', form(2)),
+    player('c-4', 'Mateo Kovačić', 8, 'Central Midfield', form(2)),
+    player('c-5', 'Luka Modrić', 10, 'Central Midfield', form(2, 1)),
+    player('c-6', 'Marcelo Brozović', 11, 'Defensive Midfield', form(2, 0, 2, 0, true)),
+    player('c-7', 'Ivan Perišić', 4, 'Left Winger', form(1)),
+    player('c-8', 'Andrej Kramarić', 9, 'Centre-Forward', form(2, 1)),
+    player('c-9', 'Bruno Petković', 16, 'Centre-Forward', form(1)),
   ],
 };
 

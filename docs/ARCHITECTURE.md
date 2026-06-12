@@ -35,6 +35,7 @@ There is no websocket layer and no live in-match feed requirement. Bets lock at 
 - **Server Components** fetch game state (fixtures, standings, balances) directly via the Supabase server client.
 - **Client Components** handle interactivity: building a bet slip, attaching a stake, buying from the shop, picking a sabotage target.
 - **Server Actions** (or API routes) handle all mutations: submit slip, purchase, activate sabotage. All writes go through the server — never let the client write balances directly.
+- **Player form guide** — the prop picker annotates each squad member with tournament form (matches played, goals, cards, a suspension flag) computed in pure `lib/player-form.ts` from our own settled-match data (`match_events` + `match_appearances`) — no extra API calls. The match page fetches both teams' prior matches and passes the aggregates down; stats only appear once a team has a settled match.
 - **Social sharing** — the all-set Today screen and the morning recap each offer a Wordle-style copy-to-clipboard share (`ShareBetsButton`). The slate digest (flags + scorelines + props) is built server-side; the recap digest (spoiler-free 🟩/⬛/⬜ grid + points + leaderboard move) is built client-side from the already-loaded `RecapData`. Both share a pure flag-emoji helper (`lib/country-flags.ts → toFlagEmoji`); the slate builder lives in pure `lib/share.ts` so the real page and the `/admin` preview render identical text.
 
 ### Database (Supabase Postgres)

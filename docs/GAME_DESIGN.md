@@ -67,6 +67,10 @@ Starting lineups are only confirmed ~20–40 min before kickoff. So:
 - Props that need a specific player (First/Anytime Goalscorer, Carded) let you pick **anyone in the 26-man squad**, not just the starting XI. If your pick doesn't play at all, that prop is **void** (stake refunded, no Glory).
 - This keeps betting open early without punishing players for unknown lineups.
 
+### Player form guide (in the prop picker)
+
+To spare managers from researching every squad before each slate, the player picker shows a slim per-player **form line** built from our own settled-match data (`lib/player-form.ts` — no extra API): matches played (`2M`), goals (⚽ — penalties count, own goals don't, mirroring prop rules), and cards (🟨/🟥). A **SUSP** badge flags players banned for this match (red card, or two accumulated yellows, in their team's most recent completed match; single yellows wipe after the QFs per FIFA rules). Stats appear only once a team has a settled match — each team's first match day shows nothing rather than a wall of zeroes. An ⓘ tooltip next to the picker search explains the legend.
+
 ---
 
 ## 3. Scoring rubric (Glory)

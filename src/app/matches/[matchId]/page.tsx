@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { BetSlip, type SlipSquads } from './BetSlip';
 import { Flag } from '@/components/ui/flag';
 import { currentSlateKey, slateKeyOf } from '@/lib/slate';
+import { computePlayerForm, type FormAppearance, type FormEvent, type FormMatch } from '@/lib/player-form';
 import type { Bet, Footballer, League, Match, Team } from '@/types/db';
 
 type PropField = 'first_scorer' | 'anytime_scorer' | 'carded';
@@ -156,12 +157,45 @@ export default async function MatchPage({
 
   const players = (footballers ?? []) as Pick<Footballer, 'id' | 'name' | 'squad_number' | 'position' | 'team_id'>[];
   const playerName = new Map(players.map(p => [p.id, p.name]));
+
+  // Tournament form for the picker: both teams' earlier matches plus the goal/card
+  // events and lineups the settle job has ingested for them. Empty before each
+  // team's first settled match — computePlayerForm then yields nothing and the
+  // picker simply shows no stats.
+  const teamIds = [match.home_team_id, match.away_team_id];
+  const { data: priorRows } = await db
+    .from('matches')
+    .select('id, kickoff_at, status, stage, home_team_id, away_team_id')
+    .or(`home_team_id.in.(${teamIds.join(',')}),away_team_id.in.(${teamIds.join(',')})`)
+    .neq('status', 'void')
+    .lt('kickoff_at', match.kickoff_at)
+    .order('kickoff_at', { ascending: true });
+  const priorMatches = (priorRows ?? []) as FormMatch[];
+  const priorIds = priorMatches.map(m => m.id);
+  let formEvents: FormEvent[] = [];
+  let formAppearances: FormAppearance[] = [];
+  if (priorIds.length > 0) {
+    const [{ data: ev }, { data: ap }] = await Promise.all([
+      db.from('match_events').select('match_id, footballer_id, type, is_own_goal').in('match_id', priorIds),
+      db.from('match_appearances').select('match_id, footballer_id').in('match_id', priorIds),
+    ]);
+    formEvents = (ev ?? []) as FormEvent[];
+    formAppearances = (ap ?? []) as FormAppearance[];
+  }
+  const form = computePlayerForm({
+    footballers: players,
+    matches: priorMatches,
+    events: formEvents,
+    appearances: formAppearances,
+  });
+  const withForm = players.map(p => ({ ...p, form: form.get(p.id) }));
+
   const squads: SlipSquads | null = players.length > 0
     ? {
         homeTeam: match.home_team.name,
         awayTeam: match.away_team.name,
-        homePlayers: players.filter(p => p.team_id === match.home_team_id),
-        awayPlayers: players.filter(p => p.team_id === match.away_team_id),
+        homePlayers: withForm.filter(p => p.team_id === match.home_team_id),
+        awayPlayers: withForm.filter(p => p.team_id === match.away_team_id),
       }
     : null;
 

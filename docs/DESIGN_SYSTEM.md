@@ -56,9 +56,14 @@ Headless-ish primitives styled with [CVA](https://cva.style) + the `cn()` helper
 - **`Badge`** — pill, status-coloured (translucent tint + matching text):
   `open` · `locked` · `finished` · `points` · `primary` · `neutral`.
 - **`Input`** — inset well; lifts to a bright focus ring.
+- **`InfoTip`** — tap-to-toggle info bubble (hover tooltips don't exist on
+  touch): ⓘ trigger + dismissable bubble, scrim-backed so any outside tap
+  closes it. Used for the player-form legend in the prop picker.
 
-Icons: **lucide-react** everywhere (no emojis). Decorative icons get
-`aria-hidden`; icon-only controls get `aria-label`.
+Icons: **lucide-react** for UI chrome (no emojis as icons). Decorative icons
+get `aria-hidden`; icon-only controls get `aria-label`. Emoji is fine as
+*content* — avatars, share digests, and the prop picker's form tokens
+(⚽ 🟨 🟥), where it's the slimmest universally-readable representation.
 
 ## Conventions
 
