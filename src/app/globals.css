@@ -208,6 +208,70 @@
 .animate-flare    { animation: flare-pulse 4s ease-in-out infinite; }
 .confetti-piece   { animation: confetti-fall 0.9s ease-out forwards; }
 
+/* ─── Match-tier celebrations — the FIFA-pack reveal (DESIGN_SYSTEM §recap) ────
+   Applied to a match slip the instant its last pick lands. Tier = winning picks on
+   the slip: 3+ legendary (gold) · 2 epic (purple) · 1 rare (green) · 0 common
+   (silver, no flourish). Glow + shine are decorative and collapse to a static
+   coloured border under the reduced-motion guard below. */
+
+/* Repeating sweep: the light crosses in the first ~22% of the cycle, then the card
+   rests for the remainder — so a longer duration makes the sweep less frequent without
+   slowing the sweep itself. */
+@keyframes card-shine {
+  0%   { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  3%   { opacity: 1; }
+  18%  { opacity: 1; }
+  22%  { transform: translateX(240%) skewX(-18deg); opacity: 0; }
+  100% { transform: translateX(240%) skewX(-18deg); opacity: 0; }
+}
+/* Single smooth sweep for the one-shot rare tier. */
+@keyframes card-shine-once {
+  0%   { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  10%  { opacity: 1; }
+  55%  { opacity: 1; }
+  100% { transform: translateX(240%) skewX(-18deg); opacity: 0; }
+}
+@keyframes tier-glow-legendary {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-primary-bright) 60%, transparent),
+                         0 0 24px -4px color-mix(in oklab, var(--color-primary-bright) 60%, transparent),
+                         inset 0 0 26px -10px color-mix(in oklab, var(--color-primary-bright) 55%, transparent); }
+  50%      { box-shadow: 0 0 0 1px var(--color-primary-bright),
+                         0 0 50px 2px color-mix(in oklab, var(--color-primary-bright) 85%, transparent),
+                         inset 0 0 38px -8px color-mix(in oklab, var(--color-primary-bright) 70%, transparent); }
+}
+@keyframes tier-glow-epic {
+  0%, 100% { box-shadow: 0 0 0 1px rgba(167, 99, 235, 0.5), 0 0 22px -4px rgba(167, 99, 235, 0.5), inset 0 0 24px -10px rgba(167, 99, 235, 0.45); }
+  50%      { box-shadow: 0 0 0 1px rgba(192, 132, 252, 0.95), 0 0 44px 2px rgba(167, 99, 235, 0.8), inset 0 0 34px -8px rgba(167, 99, 235, 0.6); }
+}
+@keyframes tier-glow-rare {
+  0%, 100% { box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-success) 40%, transparent), 0 0 16px -4px color-mix(in oklab, var(--color-success) 45%, transparent); }
+  50%      { box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-success) 70%, transparent), 0 0 30px -2px color-mix(in oklab, var(--color-success) 65%, transparent); }
+}
+
+.tier-legendary { border-color: var(--color-primary-bright) !important; animation: tier-glow-legendary 2.2s ease-in-out infinite; }
+.tier-epic      { border-color: #c084fc !important; animation: tier-glow-epic 2.4s ease-in-out infinite; }
+.tier-rare      { border-color: color-mix(in oklab, var(--color-success) 70%, transparent) !important; animation: tier-glow-rare 2.6s ease-in-out infinite; }
+.tier-common    { border-color: #97a6ad !important; box-shadow: 0 0 0 1px rgba(151, 166, 173, 0.22), inset 0 0 18px -12px rgba(151, 166, 173, 0.4); }
+
+/* Diagonal light sweep across the card face (top tiers only). */
+.tier-shine { position: absolute; inset: 0; overflow: hidden; pointer-events: none; border-radius: inherit; }
+.tier-shine::before {
+  content: ''; position: absolute; top: -20%; bottom: -20%; left: 0; width: 40%;
+  transform: translateX(-130%) skewX(-18deg);
+}
+.tier-shine.legendary::before {
+  background: linear-gradient(100deg, transparent, rgba(255, 224, 150, 0.55), rgba(255, 255, 255, 0.85), rgba(255, 224, 150, 0.55), transparent);
+  animation: card-shine 5.2s ease-in-out 0.15s infinite;
+}
+.tier-shine.epic::before {
+  background: linear-gradient(100deg, transparent, rgba(216, 180, 254, 0.65), rgba(245, 225, 255, 0.55), transparent);
+  animation: card-shine 6s ease-in-out 0.2s infinite;
+}
+.tier-shine.rare::before {
+  background: linear-gradient(100deg, transparent, rgba(187, 247, 208, 0.5), transparent);
+  animation: card-shine-once 1.2s ease-out 0.1s 1;
+}
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after {

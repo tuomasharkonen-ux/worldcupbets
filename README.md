@@ -14,6 +14,7 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 
 - **Next.js (App Router) + TypeScript + Tailwind v4** — server components for reads, server actions for writes.
 - **Design system** — bold/playful: 3D buttons, glassmorphism, lucide icons, WCAG AA. Semantic tokens + `ui/` primitives (CVA + Radix Slot). See [`docs/DESIGN_SYSTEM.md`](docs/DESIGN_SYSTEM.md).
+- **motion (Framer Motion)** — spring choreography for the morning recap's FIFA-pack reveal (pick-by-pick reveal + per-slip rarity tiers). Shine/glow effects stay pure CSS.
 - **Supabase Postgres** — game state. Accessed server-side with the service-role key; RLS intentionally off (trust model is "a private group of friends").
 - **iron-session** — shared passcode + a per-player PIN → signed cookie that persists ~400 days (stays logged in on the device until you sign out). No email.
 - **Vercel** — hosting + the `fixtures-sync` cron.

@@ -106,19 +106,31 @@ utility), opt-in per card, trivially disabled:
 - **Tilt (optional, small)** — a few degrees of parallax tilt toward the cursor on
   hero cards; capped to avoid nausea; off on touch.
 
-> Doable in vanilla CSS vars + a tiny hook — likely no new dependency. If the recap
-> wants spring physics, `motion` (Framer Motion) is the natural add — decide at
-> implementation time.
+> Doable in vanilla CSS vars + a tiny hook — likely no new dependency for the glass
+> micro-interactions. The recap reveal (below) does use `motion` (Framer Motion) for
+> its pick-by-pick spring choreography; the shine/glow effects stay pure CSS.
 
 ### The morning recap — the showcase choreography
 
-The signature moment (see `GAME_DESIGN.md` §2 / the daily loop). A **sequenced,
-tap-to-advance reveal** (auto-advances ~1.5s, always skippable):
+The signature moment (see `GAME_DESIGN.md` §2 / the daily loop). An **auto-playing
+sequenced reveal** — it's all-or-nothing: you watch the show, or hit the single subtle
+**"Skip animations"** affordance (top of the first card) to jump straight to the static
+end-state. There is no tap-to-advance.
 
 1. **"Last night"** title card — slate date, held breath; blobs pulse.
-2. **Match-by-match** — each match reveals in turn: score counts up, pick stamps
-   **HIT** (green pop + confetti) / **MISS** (muted red shake); staked chips ignite or
-   burn.
+2. **Match-by-match — the FIFA-pack reveal** — first the **final scoreline counts up**;
+   then a **"Your bets"** heading appears and the slip reveals its picks **one at a
+   time** (spring drop-in via `motion`), each pick unfolding as a slow four-beat
+   micro-sequence: **label → detail → result badge → points count-up** (e.g. "Outcome"
+   → "Brazil wins" → **HIT** → +18). The instant the **last** pick lands, the slip
+   detonates into a **rarity tier** keyed to its winning-pick count: **3+ → legendary**
+   (gold border glow + holographic light sweep + heavy gold confetti), **2 → epic**
+   (purple glow + sweep + violet confetti), **1 → rare** (green glow + light-green
+   confetti), **0 → common** (silver, no flourish — kind, not punishing). On celebration
+   the **"Your bets" heading swaps in place** to the tier word (LEGENDARY / EPIC / NICE,
+   or a wry "Damn" for a blank 0-hit slip). Tier glow/shine/confetti are pure CSS; the
+   orchestration is `motion`. The slip holds on its celebration, then the recap
+   auto-advances to the next match.
 3. **Points odometer** — running total rolls up with `+10` / `×1.5 stake` / `×2.0 stage`
    chips flying in; overshoot-and-settle; `text-glow` flares.
 4. **Coins cascade** — coins rain into balance, itemised (participation, correct,
@@ -129,7 +141,8 @@ tap-to-advance reveal** (auto-advances ~1.5s, always skippable):
    bounces in.
 
 Principles: **earned not instant** (numbers *travel*, so a good night feels bigger),
-**skippable** (persistent *Skip →*; re-viewing shows the static end-state), **honest
+**skippable** (one *Skip animations* control jumps to the static end-state, which is
+also what re-viewing shows), **honest
 but kind** (dopamine loaded on wins, never humiliating). Reduced-motion path renders
 the same beats as an instant static summary. Data is cheap — a read over the slate's
 `ledger` + bet statuses + a yesterday-vs-today leaderboard snapshot; all the cost is

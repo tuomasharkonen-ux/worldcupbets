@@ -333,10 +333,12 @@ export const MOCK_RECAP: RecapData = {
       awayScore: 0,
       staked: 25,
       stakeMult: 1.5,
+      // A clean 3/3 sweep — the legendary (gold) tier. Vinícius opening the scoring
+      // matches the favorite-player goal credited below.
       picks: [
         { label: 'Outcome', detail: 'Brazil', result: 'won', points: 18 },
         { label: 'Score', detail: '2–0', result: 'won', points: 45 },
-        { label: 'First scorer', detail: 'Vinícius Jr.', result: 'lost', points: 0 },
+        { label: 'First scorer', detail: 'Vinícius Jr.', result: 'won', points: 30 },
       ],
     },
     {
@@ -371,8 +373,8 @@ export const MOCK_RECAP: RecapData = {
       ],
     },
   ],
-  // Headline = bet Points (86) + favorites (138).
-  pointsGained: 224,
+  // Headline = bet Points (116) + favorites (138).
+  pointsGained: 254,
   favoriteItems: [
     { kind: 'player', label: 'Vinícius Jr.', detail: '1 goal', points: 15 },
     { kind: 'team', label: 'Morocco', detail: 'Reached the quarter-final', points: 123 },
