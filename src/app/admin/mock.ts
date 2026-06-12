@@ -476,8 +476,10 @@ function player(
   num: number,
   position: string,
   form?: SlipPlayer['form'],
+  availability?: SlipPlayer['availability'],
+  note?: string,
 ): SlipPlayer {
-  return { id, name, squad_number: num, position, form };
+  return { id, name, squad_number: num, position, form, availability, availability_note: note ?? null };
 }
 
 // Tournament form shorthand for the picker badges (PlayerFormStats).
@@ -486,7 +488,8 @@ function form(apps: number, goals = 0, yellows = 0, reds = 0, suspended = false)
 }
 
 // Both squads two group games in — covers every picker badge state: scorers,
-// booked players, an unused sub (0M) and a suspended pick (Brozović).
+// booked players, an unused sub (0M), a suspended pick (Brozović), an injured
+// OUT (Militão) and a fitness DOUBT (Perišić).
 export const MOCK_SQUADS: SlipSquads = {
   homeTeam: 'Brazil',
   awayTeam: 'Croatia',
@@ -494,7 +497,7 @@ export const MOCK_SQUADS: SlipSquads = {
     player('b-1', 'Alisson', 1, 'Goalkeeper', form(2)),
     player('b-2', 'Danilo', 2, 'Right-Back', form(2, 0, 1)),
     player('b-3', 'Marquinhos', 4, 'Centre-Back', form(2)),
-    player('b-4', 'Éder Militão', 3, 'Centre-Back', form(1)),
+    player('b-4', 'Éder Militão', 3, 'Centre-Back', form(1), 'out', 'knee injury, withdrawn from squad'),
     player('b-5', 'Casemiro', 5, 'Defensive Midfield', form(2, 0, 1)),
     player('b-6', 'Bruno Guimarães', 8, 'Central Midfield', form(2)),
     player('b-7', 'Rodrygo', 10, 'Right Winger', form(2, 1)),
@@ -509,7 +512,7 @@ export const MOCK_SQUADS: SlipSquads = {
     player('c-4', 'Mateo Kovačić', 8, 'Central Midfield', form(2)),
     player('c-5', 'Luka Modrić', 10, 'Central Midfield', form(2, 1)),
     player('c-6', 'Marcelo Brozović', 11, 'Defensive Midfield', form(2, 0, 2, 0, true)),
-    player('c-7', 'Ivan Perišić', 4, 'Left Winger', form(1)),
+    player('c-7', 'Ivan Perišić', 4, 'Left Winger', form(1), 'doubtful', 'hamstring, race to be fit'),
     player('c-8', 'Andrej Kramarić', 9, 'Centre-Forward', form(2, 1)),
     player('c-9', 'Bruno Petković', 16, 'Centre-Forward', form(1)),
   ],

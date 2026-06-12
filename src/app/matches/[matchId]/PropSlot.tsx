@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import type { PlayerFormStats } from '@/lib/player-form';
+import type { PlayerAvailability } from '@/types/db';
 
 export type PropType = 'first_scorer' | 'anytime_scorer' | 'carded';
 
@@ -22,6 +23,9 @@ export interface SlipPlayer {
   position: string | null;
   /** Tournament form (absent until the player's team has a settled match). */
   form?: PlayerFormStats;
+  /** Hand-maintained injury flag — 'fit' (silent), 'doubtful' or 'out'. */
+  availability?: PlayerAvailability;
+  availability_note?: string | null;
 }
 
 export interface SlipSquads {
@@ -73,6 +77,12 @@ function relevanceRank(cat: PosCat | null, kind: PropType): number {
   return i === -1 ? order.length : i; // unknown position sinks to the bottom
 }
 
+// Players set to miss the match sink below everyone else — still pickable
+// (the news can be wrong), just clearly a long shot.
+function missingRank(p: SlipPlayer): number {
+  return p.availability === 'out' || p.form?.suspended ? 1 : 0;
+}
+
 // One compact mono token per stat — zeroes stay silent so quiet rows stay quiet.
 function formTokens(form: PlayerFormStats): string {
   const bits = [`${form.apps}M`];
@@ -80,6 +90,28 @@ function formTokens(form: PlayerFormStats): string {
   if (form.yellows > 0) bits.push(`🟨${form.yellows}`);
   if (form.reds > 0) bits.push(`🟥${form.reds}`);
   return bits.join(' ');
+}
+
+// One status badge per row, worst news wins: ruled out > suspended > doubtful.
+// Fit players show form tokens instead (handled at the call site).
+function statusBadge(p: SlipPlayer): { label: string; cls: string } | null {
+  if (p.availability === 'out')
+    return { label: 'OUT', cls: 'bg-[color-mix(in_oklab,var(--color-danger)_18%,transparent)] text-danger' };
+  if (p.form?.suspended)
+    return { label: 'SUSP', cls: 'bg-[color-mix(in_oklab,var(--color-danger)_18%,transparent)] text-danger' };
+  if (p.availability === 'doubtful')
+    return { label: 'DOUBT', cls: 'bg-[color-mix(in_oklab,var(--color-accent)_20%,transparent)] text-accent' };
+  return null;
+}
+
+// Warning line under a chosen player — mirrors the badge precedence and folds in
+// the hand-written note ("hamstring", "withdrawn from squad"…) when there is one.
+function statusWarning(p: SlipPlayer): { text: string; cls: string } | null {
+  const note = p.availability_note ? ` — ${p.availability_note}` : '';
+  if (p.availability === 'out') return { text: `Ruled out${note}`, cls: 'text-danger' };
+  if (p.form?.suspended) return { text: 'Suspended — set to miss this match', cls: 'text-danger' };
+  if (p.availability === 'doubtful') return { text: `Doubtful${note}`, cls: 'text-accent' };
+  return null;
 }
 
 interface SlotValue {
@@ -158,9 +190,11 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
   const prepare = (players: SlipPlayer[]) => {
     const searched = q ? players.filter(p => p.name.toLowerCase().includes(q)) : players;
     const filtered = posFilter === 'all' ? searched : searched.filter(p => posCategory(p.position) === posFilter);
-    if (!pendingType) return filtered;
+    if (!pendingType) return [...filtered].sort((a, b) => missingRank(a) - missingRank(b));
     return [...filtered].sort(
-      (a, b) => relevanceRank(posCategory(a.position), pendingType) - relevanceRank(posCategory(b.position), pendingType),
+      (a, b) =>
+        missingRank(a) - missingRank(b) ||
+        relevanceRank(posCategory(a.position), pendingType) - relevanceRank(posCategory(b.position), pendingType),
     );
   };
   const homeMatches = prepare(squads.homePlayers);
@@ -189,9 +223,10 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
               <p className="truncate font-display text-sm font-semibold text-foreground">
                 {chosenPlayer ? fmtPlayer(chosenPlayer) : 'Unknown player'}
               </p>
-              {chosenPlayer?.form?.suspended && (
-                <p className="text-xs font-medium text-danger">Suspended — set to miss this match</p>
-              )}
+              {(() => {
+                const warning = chosenPlayer && statusWarning(chosenPlayer);
+                return warning ? <p className={`text-xs font-medium ${warning.cls}`}>{warning.text}</p> : null;
+              })()}
             </div>
             {!locked && (
               <div className="flex shrink-0 items-center gap-1">
@@ -288,7 +323,10 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                   matches, <span className="font-mono text-foreground">⚽</span> goals scored (penalties
                   count, own goals don&rsquo;t), <span className="font-mono text-foreground">🟨 🟥</span>{' '}
                   cards. <span className="font-mono font-bold text-danger">SUSP</span> = suspended for this
-                  match after a red card or two yellows.
+                  match after a red card or two yellows.{' '}
+                  <span className="font-mono font-bold text-danger">OUT</span> = injured or withdrawn from
+                  the squad. <span className="font-mono font-bold text-accent">DOUBT</span> = fitness doubt
+                  per latest team news.
                 </InfoTip>
               </div>
 
@@ -335,6 +373,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                           <div className="space-y-1">
                             {group.players.map(p => {
                               const cat = posCategory(p.position);
+                              const badge = statusBadge(p);
                               return (
                                 <button
                                   key={p.id}
@@ -346,9 +385,9 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                                     {p.squad_number ?? '—'}
                                   </span>
                                   <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                                  {p.form?.suspended ? (
-                                    <span className="shrink-0 rounded-md bg-[color-mix(in_oklab,var(--color-danger)_18%,transparent)] px-1.5 py-0.5 font-mono text-[0.65rem] font-bold text-danger">
-                                      SUSP
+                                  {badge ? (
+                                    <span className={`shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[0.65rem] font-bold ${badge.cls}`}>
+                                      {badge.label}
                                     </span>
                                   ) : (
                                     p.form && (

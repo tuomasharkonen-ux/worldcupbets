@@ -151,11 +151,14 @@ export default async function MatchPage({
   // Squads for the prop pickers (null until squads-sync has populated them).
   const { data: footballers } = await db
     .from('footballers')
-    .select('id, name, squad_number, position, team_id')
+    .select('id, name, squad_number, position, team_id, availability, availability_note')
     .in('team_id', [match.home_team_id, match.away_team_id])
     .order('squad_number', { ascending: true });
 
-  const players = (footballers ?? []) as Pick<Footballer, 'id' | 'name' | 'squad_number' | 'position' | 'team_id'>[];
+  const players = (footballers ?? []) as Pick<
+    Footballer,
+    'id' | 'name' | 'squad_number' | 'position' | 'team_id' | 'availability' | 'availability_note'
+  >[];
   const playerName = new Map(players.map(p => [p.id, p.name]));
 
   // Tournament form for the picker: both teams' earlier matches plus the goal/card

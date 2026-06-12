@@ -91,10 +91,11 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/fixtures-sync
   ```
-- **Sync squads** (run once after final 26-man squads are confirmed, ~June 1, and again on any revision — needed before player props can be picked or settled):
+- **Sync squads** (run once after final 26-man squads are confirmed, ~June 1, and again on any revision — needed before player props can be picked or settled; also marks players dropped from the official list as `out`):
   ```
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/squads-sync
   ```
+- **Injury flags** — `footballers.availability` drives the OUT/DOUBT badges in the prop picker; maintained by hand on match-day mornings. See [`docs/INJURY_UPDATES.md`](docs/INJURY_UPDATES.md).
 
 - **Force a settlement run** (otherwise automatic at 03:00 + 08:00 Helsinki):
   ```bash
@@ -109,3 +110,4 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
 - [`docs/DATA_MODEL.md`](docs/DATA_MODEL.md) — full schema, tables, indexes, idempotency.
 - [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) — rules of play, scoring, the shop.
 - [`docs/BUILD_PLAN.md`](docs/BUILD_PLAN.md) — phased roadmap and current progress.
+- [`docs/INJURY_UPDATES.md`](docs/INJURY_UPDATES.md) — injury/withdrawal flag runbook (football-data.org has no injury feed).

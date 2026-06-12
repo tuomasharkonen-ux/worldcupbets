@@ -107,6 +107,9 @@ Squad members (~26 per team). Mapping plus display.
 | `photo_url` | text | from data API; flag+initials placeholder if null |
 | `fd_player_id` | int | nullable |
 | `sofa_player_id` | int | nullable |
+| `availability` | text | `fit` (default) \| `doubtful` \| `out` — hand-maintained injury flag (migration `011`); squads-sync sets `out` for players dropped from the official list. Renders OUT/DOUBT badges in the prop picker. See [`INJURY_UPDATES.md`](INJURY_UPDATES.md) |
+| `availability_note` | text | nullable; short reason shown under a chosen player ("thigh injury, withdrawn from squad") |
+| `availability_updated_at` | timestamptz | nullable |
 
 ### `matches`
 The 104 fixtures.

@@ -23,11 +23,16 @@ export async function GET(req: NextRequest) {
   }
 }
 
-async function syncSquads(): Promise<{ teams: number; players: number }> {
+// Note text squads-sync owns: only flags it wrote itself get auto-cleared when a
+// player reappears on the list, so manual injury flags survive re-runs.
+const WITHDRAWN_NOTE = 'Withdrawn from squad';
+
+async function syncSquads(): Promise<{ teams: number; players: number; withdrawn: number }> {
   const { teams } = await getCompetitionTeams();
 
   let teamsTouched = 0;
   let playersUpserted = 0;
+  let playersWithdrawn = 0;
 
   for (const t of teams ?? []) {
     // Resolve our internal team UUID via the football-data team id.
@@ -50,9 +55,36 @@ async function syncSquads(): Promise<{ teams: number; players: number }> {
     const { error } = await db.from('footballers').upsert(rows, { onConflict: 'fd_player_id' });
     if (error) throw error;
 
+    const squadIds = squad.map(p => p.id);
+    const now = new Date().toISOString();
+
+    // Players we synced earlier who have dropped off the official list were
+    // replaced (injury withdrawal). Keep their rows — bets may reference them —
+    // but mark them out so the picker warns about them.
+    const { data: withdrawn, error: outError } = await db
+      .from('footballers')
+      .update({ availability: 'out', availability_note: WITHDRAWN_NOTE, availability_updated_at: now })
+      .eq('team_id', team.id)
+      .not('fd_player_id', 'is', null)
+      .not('fd_player_id', 'in', `(${squadIds.join(',')})`)
+      .neq('availability', 'out')
+      .select('id');
+    if (outError) throw outError;
+    playersWithdrawn += withdrawn?.length ?? 0;
+
+    // If a previously-withdrawn player is back on the list, clear our own flag.
+    const { error: backError } = await db
+      .from('footballers')
+      .update({ availability: 'fit', availability_note: null, availability_updated_at: now })
+      .eq('team_id', team.id)
+      .in('fd_player_id', squadIds)
+      .eq('availability', 'out')
+      .eq('availability_note', WITHDRAWN_NOTE);
+    if (backError) throw backError;
+
     teamsTouched++;
     playersUpserted += rows.length;
   }
 
-  return { teams: teamsTouched, players: playersUpserted };
+  return { teams: teamsTouched, players: playersUpserted, withdrawn: playersWithdrawn };
 }

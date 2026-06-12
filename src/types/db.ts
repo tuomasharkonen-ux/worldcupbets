@@ -140,6 +140,10 @@ export interface Team {
   champion_odds: number | null;
 }
 
+// Hand-maintained injury/withdrawal flag (migration 011) — football-data.org has
+// no injury feed. squads-sync sets 'out' for players dropped from the 26-man list.
+export type PlayerAvailability = 'fit' | 'doubtful' | 'out';
+
 export interface Footballer {
   id: string;
   team_id: string;
@@ -149,6 +153,9 @@ export interface Footballer {
   photo_url: string | null;
   fd_player_id: number | null;
   sofa_player_id: number | null;
+  availability: PlayerAvailability;
+  availability_note: string | null;
+  availability_updated_at: string | null;
 }
 
 export interface Match {
