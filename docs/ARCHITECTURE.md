@@ -82,11 +82,11 @@ Keeping it pure makes it unit-testable against fixture JSON without a database, 
 
 ### football-data.org (the reliable backbone)
 
-- Free tier includes the **World Cup** competition: fixtures, results, match events (goals, cards, subs), standings, lineups.
+- Free tier includes the **World Cup** competition: fixtures, kickoff times, status, final score, standings.
 - Auth via a free API token in `FOOTBALL_DATA_TOKEN`. Rate limit ~10 req/min — trivially within budget.
 - Scores are *delayed* on the free tier, which is fine: settlement is post-match, not live.
-- Powers: schedule, kickoff times, outcome, exact score, goalscorers, cards → i.e. **all core bets and the goal/card props**.
-- **The score can land before the scorers.** The free tier sometimes publishes the final score while `goals` is still empty. Settling goalscorer props off that empty list would wrongly mark correct picks as *lost* — so when goals are on the board but no goal events were ingested, `settle` **defers** the match for a grace window (~8 h from kickoff; each retry re-ingests, so a slow feed still pays out the *win*). Past the window it settles anyway and the engine **voids** any still-missing scorer props (refund, no Glory) so a permanently-incomplete feed can't block the slate's recap forever. (June 13: Brazil 1–1 Morocco settled with zero scorers, voiding two correct Vinícius anytime picks — this is the guard against a repeat.)
+- Powers: schedule, kickoff times, outcome, exact score → i.e. **the core score-based bets**.
+- ⚠️ **The free tier does NOT provide goalscorers, cards, or lineups for WC2026.** Verified 2026-06-14 against a `FINISHED` match: `/matches/{id}` returns `goals: []`, `bookings: []`, and empty `lineup` even days later — not a delay, a plan limitation. So **first/anytime-scorer, carded, and lineup-based SUSP flags cannot settle from this source.** Those props need a different provider (Sofascore / API-Football — see below). Until then the engine **voids** scorer/card props (refund, no Glory) rather than falsely marking them lost, and `settle` **defers** within a grace window in case data ever arrives. (June 13: Brazil 1–1 Morocco settled with zero scorers, voiding two correct Vinícius anytime picks — the trigger for this whole guard.)
 
 ### Sofascore unofficial API (the granular layer)
 
