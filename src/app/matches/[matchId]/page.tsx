@@ -78,10 +78,24 @@ export default async function MatchPage({
     .select('coins')
     .eq('id', session.managerId!)
     .single<{ coins: number }>();
+  // Stakes are charged at settlement, not held upfront, so the raw balance still
+  // includes Coins already committed to *other* pending matches in the slate. Deduct
+  // them here (mirrors the submit-time guard in actions.ts) so the stake widget shows
+  // what's actually left to spend on this match — not the full, misleading balance.
+  const { data: otherPending } = await db
+    .from('bets')
+    .select('stake_coins')
+    .eq('manager_id', session.managerId!)
+    .eq('status', 'pending')
+    .neq('match_id', matchId);
+  const committedElsewhere = (otherPending ?? []).reduce(
+    (s, b) => s + ((b.stake_coins as number) ?? 0),
+    0,
+  );
   const stakeConfig = {
     tiers: league?.config.stake.tiers ?? [{ coins: 0, mult: 1.0 }],
     capCoins: league?.config.stake.cap_coins ?? 0,
-    balance: me?.coins ?? 0,
+    balance: Math.max(0, (me?.coins ?? 0) - committedElsewhere),
   };
   const glory = league?.config.glory;
   const scoring = {

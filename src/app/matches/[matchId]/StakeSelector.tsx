@@ -30,8 +30,9 @@ export function StakeSelector({ name, tiers, capCoins, balance, defaultCoins = 0
       <div className="flex gap-2">
         {tiers.map(tier => {
           const isNone = tier.coins === 0;
-          // A tier you can't afford right now (other bets' stakes may reduce this
-          // further — the server has the final say on the slip total).
+          // A tier you can't afford: `balance` is what's left to spend on *this* match
+          // (stakes committed to other pending matches are already deducted upstream),
+          // so this is authoritative for the slate; the server still re-checks on submit.
           const unaffordable = !isNone && (tier.coins > capCoins || tier.coins > balance);
           const selected = coins === tier.coins;
           const tierDisabled = disabled || (unaffordable && !selected);
