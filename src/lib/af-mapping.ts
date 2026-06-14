@@ -26,29 +26,49 @@ import {
 
 // ─── name normalization ────────────────────────────────────────────────────────
 
-// Lowercase, strip diacritics, drop everything but a-z0-9, collapse to a bare token.
-function normalize(name: string): string {
+// Letters NFD doesn't decompose to ASCII \u2014 chiefly Turkish dotless \u0131 (which would
+// otherwise be *deleted*, leaving "\u00c7ak\u0131r"\u2192"cakr" vs AF's "Cakir"\u2192"cakir"), plus the
+// usual Nordic/Slavic base letters. Folded before the a-z0-9 filter so both sides land
+// on the same spelling.
+const FOLD: Record<string, string> = {
+  \u0131: 'i', \u0130: 'i', \u0142: 'l', \u0141: 'l', \u00f8: 'o', \u00d8: 'o', \u0111: 'd', \u0110: 'd',
+  \u00f0: 'd', \u00d0: 'd', \u00fe: 'th', \u00de: 'th', \u00df: 'ss', \u00e6: 'ae', \u00c6: 'ae', \u0153: 'oe', \u0152: 'oe', \u014b: 'n',
+};
+
+// Diacritics stripped, special base letters folded, lowercased. The shared front-end of
+// both normalize() and tokens().
+function fold(name: string): string {
   return name
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, "") // combining diacritical marks
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/[\u0300-\u036f]/g, '') // combining diacritical marks
+    .replace(/[\u0131\u0130\u0142\u0141\u00f8\u00d8\u0111\u0110\u00f0\u00d0\u00fe\u00de\u00df\u00e6\u00c6\u0153\u0152\u014b]/g, c => FOLD[c] ?? c)
+    .toLowerCase();
 }
 
-// Split a name into normalized word tokens (diacritics stripped, hyphens split). This
-// is what makes player matching robust to the two big sources of mismatch: name ORDER
-// (AF stores "Son Heung-Min" family-first vs our "Heung-min Son") and accents/hyphens.
+// Drop everything but a-z0-9, collapse to a bare token (team names).
+function normalize(name: string): string {
+  return fold(name).replace(/[^a-z0-9]/g, '');
+}
+
+// Split a name into normalized word tokens. Robust to name ORDER (AF stores "Son
+// Heung-Min" family-first vs our "Heung-min Son") and accents.
 function tokens(name: string): string[] {
-  return name
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
+  return fold(name)
     .split(/[^a-z0-9]+/)
     .filter(Boolean);
 }
 
-// Order-invariant key: sorted token set. "Heung-min Son" and "Son Heung-Min" \u2192 same key.
-const tokenKey = (name: string) => tokens(name).sort().join(' ');
+// Order-invariant match keys for a name: the sorted token set, PLUS a variant with
+// hyphens joined rather than split \u2014 so "Hwang Heechan" and AF's "Hwang Hee-Chan" share
+// a key (Korean/Arabic syllable hyphenation), without breaking genuinely separate
+// hyphenated surnames (which still match via the split variant).
+function nameKeys(name: string): string[] {
+  const folded = fold(name);
+  const split = folded.split(/[^a-z0-9]+/).filter(Boolean);
+  const joined = folded.replace(/[-'\u2019\u00b7]/g, '').split(/[^a-z0-9]+/).filter(Boolean);
+  const keys = new Set<string>([[...split].sort().join(' '), [...joined].sort().join(' ')]);
+  return [...keys];
+}
 
 // a \u2286 b \u2014 every token of a appears in b (used for the mononym/abbreviation fallback).
 const isSubset = (a: string[], b: string[]) => a.every(t => b.includes(t));
@@ -225,17 +245,21 @@ export async function syncAfMappings(dryRun = false): Promise<AfMappingResult> {
     const used = new Set<number>();
     const matchOf = new Map<string, { id: number; name: string }>();
 
-    // Tier 1 — order/accent/hyphen-invariant token-set equality (handles the SK reorder).
+    // Tier 1 — order/accent/hyphen-invariant token-set equality (handles the SK reorder
+    // and Korean syllable hyphenation). A player registers under each of its name keys.
     const afByKey = new Map<string, { id: number; name: string }[]>();
     for (const p of squad) {
-      const k = tokenKey(p.name);
-      (afByKey.get(k) ?? afByKey.set(k, []).get(k)!).push(p);
+      for (const k of nameKeys(p.name)) (afByKey.get(k) ?? afByKey.set(k, []).get(k)!).push(p);
     }
     for (const f of ourFooters) {
-      const cands = (afByKey.get(tokenKey(f.name)) ?? []).filter(p => !used.has(p.id));
-      if (cands.length === 1) {
-        matchOf.set(f.id, cands[0]);
-        used.add(cands[0].id);
+      const cands = new Map<number, { id: number; name: string }>();
+      for (const k of nameKeys(f.name)) {
+        for (const p of afByKey.get(k) ?? []) if (!used.has(p.id)) cands.set(p.id, p);
+      }
+      if (cands.size === 1) {
+        const p = [...cands.values()][0];
+        matchOf.set(f.id, p);
+        used.add(p.id);
       }
     }
 
