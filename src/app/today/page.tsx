@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Flag } from '@/components/ui/flag';
 import { currentSlateKey, slateKeyOf, slateLabel } from '@/lib/slate';
 import { matchDayNumber } from '@/lib/matchday';
-import { buildSlateShareText, isShareProp } from '@/lib/share';
+import { buildSlateShareText } from '@/lib/share';
 import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding, type RecapFavoriteItem } from './Recap';
 import { ShareBetsButton } from './ShareBetsButton';
 import { Social } from './Social';
@@ -30,6 +30,7 @@ import type {
   OutcomeSelection,
   Team,
 } from '@/types/db';
+import { BONUS_LABEL, bonusDetail, isBonusBet, isPlayerBonusBet } from '@/lib/bonus-bets';
 
 const TIMEZONE = 'Europe/Helsinki';
 
@@ -64,12 +65,6 @@ async function fetchSlateMembers(slateKey: string, rollover: number): Promise<Ma
     m => m.status !== 'void' && slateKeyOf(m.kickoff_at, rollover) === slateKey,
   );
 }
-
-const PROP_LABEL: Record<string, string> = {
-  first_scorer: 'First scorer',
-  anytime_scorer: 'Anytime scorer',
-  carded: 'Booked',
-};
 
 // Favorite-team milestone (migration 009): the ledger reason suffix earned by reaching
 // a stage maps from the team's match stage; champion/third are won, handled separately.
@@ -288,7 +283,7 @@ export default async function TodayPage() {
   const propPlayerName = new Map<string, string>();
   if (state === 'allset') {
     const propIds = myBets
-      .filter(b => PROP_LABEL[b.bet_type])
+      .filter(b => isPlayerBonusBet(b.bet_type))
       .map(b => (b.selection as FootballerSelection).footballer_id);
     if (propIds.length > 0) {
       const { data: players } = await db.from('footballers').select('id, name').in('id', propIds);
@@ -304,10 +299,16 @@ export default async function TodayPage() {
     const bs = betsByMatch.get(m.id) ?? [];
     const outcome = bs.find(b => b.bet_type === 'outcome')!;
     const exact = bs.find(b => b.bet_type === 'exact_score')!;
-    const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+    const bonus = bs.find(b => isBonusBet(b.bet_type));
     const ex = exact.selection as ExactScoreSelection;
     const mult = outcome.stake_mult; // one stake/multiplier per match slip
-    const propPlayer = prop ? propPlayerName.get((prop.selection as FootballerSelection).footballer_id) : null;
+    const bonusText = bonus
+      ? bonusDetail(bonus, {
+          playerName: id => propPlayerName.get(id),
+          homeTeam: m.home_team.name,
+          awayTeam: m.away_team.name,
+        })
+      : null;
 
     return (
       <div className="glass flex flex-col gap-3 rounded-2xl px-4 py-3.5">
@@ -325,10 +326,10 @@ export default async function TodayPage() {
           </span>
         </div>
 
-        {prop && (
+        {bonus && (
           <div className="flex items-center justify-center gap-1.5 text-xs text-muted">
-            <span className="text-subtle">{PROP_LABEL[prop.bet_type]}:</span>
-            <span className="font-medium text-foreground">{propPlayer ?? 'Unknown'}</span>
+            <span className="text-subtle">{BONUS_LABEL[bonus.bet_type as keyof typeof BONUS_LABEL]}:</span>
+            <span className="font-medium text-foreground">{bonusText ?? 'Unknown'}</span>
           </div>
         )}
 
@@ -371,7 +372,7 @@ export default async function TodayPage() {
     const bs = betsByMatch.get(m.id) ?? [];
     const outcome = bs.find(b => b.bet_type === 'outcome');
     const exact = bs.find(b => b.bet_type === 'exact_score');
-    const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+    const bonus = bs.find(b => isBonusBet(b.bet_type));
     const complete = hasCompleteCore(m.id);
     const totalStake = bs.reduce((s, b) => s + b.stake_coins, 0);
 
@@ -411,7 +412,7 @@ export default async function TodayPage() {
                 {outcomeLabel((outcome!.selection as OutcomeSelection).result, m.home_team.name, m.away_team.name)}
                 {' · '}
                 {(exact!.selection as ExactScoreSelection).home}–{(exact!.selection as ExactScoreSelection).away}
-                {prop ? ' · player bet' : ''}
+                {bonus ? ' · bonus bet' : ''}
               </span>
               {totalStake > 0 && <Badge variant="primary" size="sm">{totalStake}¢ staked</Badge>}
               {editable && !locked && <Pencil className="size-3.5 shrink-0 text-subtle" aria-hidden />}
@@ -498,7 +499,7 @@ async function buildShareText(
 ): Promise<string> {
   const propIds = members
     .flatMap(m => betsByMatch.get(m.id) ?? [])
-    .filter(b => isShareProp(b.bet_type))
+    .filter(b => isPlayerBonusBet(b.bet_type))
     .map(b => (b.selection as FootballerSelection).footballer_id);
   const playerName = new Map<string, string>();
   if (propIds.length > 0) {
@@ -520,7 +521,7 @@ async function buildRecap(
 
   // Player names for any prop picks on the slate (mine + others not needed — only mine show).
   const propIds = myBets
-    .filter(b => PROP_LABEL[b.bet_type])
+    .filter(b => isPlayerBonusBet(b.bet_type))
     .map(b => (b.selection as FootballerSelection).footballer_id);
   const playerName = new Map<string, string>();
   if (propIds.length > 0) {
@@ -549,9 +550,13 @@ async function buildRecap(
           const sel = b.selection as ExactScoreSelection;
           return { label: 'Score', detail: `${sel.home}–${sel.away}`, result: b.status, points } as RecapPick;
         }
-        if (PROP_LABEL[b.bet_type]) {
-          const sel = b.selection as FootballerSelection;
-          return { label: PROP_LABEL[b.bet_type], detail: playerName.get(sel.footballer_id) ?? 'Unknown', result: b.status, points } as RecapPick;
+        if (isBonusBet(b.bet_type)) {
+          const detail = bonusDetail(b, {
+            playerName: id => playerName.get(id),
+            homeTeam: m.home_team.name,
+            awayTeam: m.away_team.name,
+          });
+          return { label: BONUS_LABEL[b.bet_type], detail, result: b.status, points } as RecapPick;
         }
         return null;
       })

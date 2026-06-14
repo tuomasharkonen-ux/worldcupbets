@@ -4,12 +4,21 @@
 export type Phase = 'group' | 'knockout' | 'finished';
 export type MatchStage = 'group' | 'r32' | 'r16' | 'qf' | 'sf' | 'third' | 'final';
 export type MatchStatus = 'scheduled' | 'live' | 'finished' | 'void';
-export type BetType = 'outcome' | 'exact_score' | 'first_scorer' | 'anytime_scorer' | 'carded';
+export type BetType =
+  | 'outcome'
+  | 'exact_score'
+  | 'first_scorer'
+  | 'anytime_scorer'
+  | 'carded'
+  | 'over_under'
+  | 'clean_sheet'
+  | 'anytime_assist'
+  | 'score_2plus';
 export type BetStatus = 'pending' | 'won' | 'lost' | 'void';
 export type Currency = 'glory' | 'coins';
 export type ItemKind = 'powerup' | 'upgrade' | 'sabotage' | 'counter';
 export type ItemStatus = 'owned' | 'active' | 'consumed' | 'blocked';
-export type EventType = 'goal' | 'own_goal' | 'yellow' | 'red' | 'penalty';
+export type EventType = 'goal' | 'own_goal' | 'yellow' | 'red' | 'penalty' | 'assist';
 
 export interface League {
   id: 1;
@@ -28,6 +37,12 @@ export interface LeagueConfig {
     first_goalscorer?: number;
     anytime_scorer?: number;
     carded?: number;
+    // Bonus bets (migration 013). Optional so pre-013 configs still type-check; the
+    // settlement engine falls back to 0 when a value is absent.
+    anytime_assist?: number;
+    score_2plus?: number;
+    clean_sheet?: number;
+    over_under?: number;
   };
   // Coin income (GAME_DESIGN §4): per-bet keys (migration 003) + slate-scoped
   // day-close keys (migration 005).
@@ -216,14 +231,20 @@ export interface PlayerMatchStats {
 // Selection shapes per bet_type
 export type OutcomeSelection = { result: 'home' | 'draw' | 'away' };
 export type ExactScoreSelection = { home: number; away: number };
+// Player props: first/anytime scorer, carded, anytime assist, score 2+.
 export type FootballerSelection = { footballer_id: string };
 export type StatLeaderSelection = { footballer_id: string; stat: 'passes' | 'shots' | 'touches' };
+// Bonus bets that aren't tied to a player (migration 013).
+export type OverUnderSelection = { line: number; direction: 'over' | 'under' };
+export type CleanSheetSelection = { team: 'home' | 'away' };
 
 export type BetSelection =
   | OutcomeSelection
   | ExactScoreSelection
   | FootballerSelection
-  | StatLeaderSelection;
+  | StatLeaderSelection
+  | OverUnderSelection
+  | CleanSheetSelection;
 
 export interface Bet {
   id: string;

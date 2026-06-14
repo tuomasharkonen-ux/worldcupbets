@@ -46,11 +46,20 @@ export const MOCK_STAKE: { tiers: StakeTier[]; capCoins: number; balance: number
 };
 
 // Scoring config for the bet slip's live max-winnings counter (GAME_DESIGN §3/§5).
+// `props` mirrors the live league.config.glory bonus-bet values (migration 013).
 export const MOCK_SCORING = {
   stageMult: 1.0,
   outcome: 10,
   exactBonus: 25,
-  props: { first_scorer: 20, anytime_scorer: 10, carded: 10 },
+  props: {
+    first_scorer: 20,
+    anytime_scorer: 10,
+    score_2plus: 30,
+    anytime_assist: 15,
+    carded: 12,
+    over_under: 6,
+    clean_sheet: 8,
+  },
 };
 
 let _betSeq = 0;
@@ -226,7 +235,7 @@ export function socialData(): SocialData {
     score: [number, number] | null,
     outcome: string | null,
     mult = 1,
-    prop: { label: string; player: string } | null = null,
+    prop: { label: string; detail: string } | null = null,
   ) => {
     const mgr = SOCIAL_MANAGERS.find(m => m.id === id)!;
     return {
@@ -254,7 +263,7 @@ export function socialData(): SocialData {
           slip('b', [3, 0], 'Brazil', 2),
           slip('c', null, null),
           slip('a', [2, 0], 'Brazil', 1.25),
-          slip('me', [2, 1], 'Brazil', 1.5, { label: 'First scorer', player: 'A. Striker' }),
+          slip('me', [2, 1], 'Brazil', 1.5, { label: 'First scorer', detail: 'A. Striker' }),
         ],
       },
       {
@@ -266,7 +275,7 @@ export function socialData(): SocialData {
           slip('b', [2, 1], 'France'),
           slip('c', [1, 1], 'Draw', 1.25),
           slip('a', [2, 0], 'France'),
-          slip('me', [2, 1], 'France', 1.5, { label: 'Anytime scorer', player: 'A. Striker' }),
+          slip('me', [2, 1], 'France', 1.5, { label: 'Anytime scorer', detail: 'A. Striker' }),
         ],
       },
       {
@@ -592,10 +601,14 @@ export function finishedMatchData(): FinishedMatchData {
     match: match('m-1', TEAMS.brazil, TEAMS.croatia, '2026-06-15T16:00:00Z', {
       group_label: 'C', status: 'finished', home_score: 2, away_score: 0, settled_at: '2026-06-16T07:00:00Z',
     }),
+    // Brazil 2–0 Croatia: showcases a player bonus bet and the two score-derived ones
+    // (Brazil keep a clean sheet; total of 2 lands under the 2.5 line).
     bets: [
       { bet_type: 'outcome', selection: { result: 'home' }, status: 'won', stake_coins: 25 },
       { bet_type: 'exact_score', selection: { home: 2, away: 0 }, status: 'won', stake_coins: 10 },
-      { bet_type: 'first_scorer', selection: { footballer_id: 'b-8' }, status: 'lost', stake_coins: 10 },
+      { bet_type: 'anytime_scorer', selection: { footballer_id: 'b-8' }, status: 'won', stake_coins: 0 },
+      { bet_type: 'clean_sheet', selection: { team: 'home' }, status: 'won', stake_coins: 0 },
+      { bet_type: 'over_under', selection: { line: 2.5, direction: 'under' }, status: 'won', stake_coins: 0 },
     ],
     playerName: new Map([['b-8', 'Vinícius Jr.']]),
   };

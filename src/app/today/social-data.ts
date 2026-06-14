@@ -14,6 +14,7 @@ import type {
   Reaction,
   Team,
 } from '@/types/db';
+import { BONUS_LABEL, bonusDetail, isBonusBet, isPlayerBonusBet } from '@/lib/bonus-bets';
 import type {
   FeedCommentData,
   ReactionChipData,
@@ -23,12 +24,6 @@ import type {
 } from './Social';
 
 type MatchRow = Match & { home_team: Team; away_team: Team };
-
-const PROP_LABEL: Record<string, string> = {
-  first_scorer: 'First scorer',
-  anytime_scorer: 'Anytime scorer',
-  carded: 'Booked',
-};
 
 const FEED_LIMIT = 300;
 
@@ -113,7 +108,7 @@ export async function buildSocialData(opts: {
   // Footballer names for every visible prop pick, one batch query.
   const propIds = visibleMembers
     .flatMap(m => managers.flatMap(mgr => betsBy.get(`${mgr.id}:${m.id}`) ?? []))
-    .filter(b => PROP_LABEL[b.bet_type])
+    .filter(b => isPlayerBonusBet(b.bet_type))
     .map(b => (b.selection as FootballerSelection).footballer_id);
   const playerName = new Map<string, string>();
   if (propIds.length > 0) {
@@ -126,7 +121,7 @@ export async function buildSocialData(opts: {
       const bs = betsBy.get(`${mgr.id}:${m.id}`) ?? [];
       const outcome = bs.find(b => b.bet_type === 'outcome');
       const exact = bs.find(b => b.bet_type === 'exact_score');
-      const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+      const prop = bs.find(b => isBonusBet(b.bet_type));
       const ex = exact ? (exact.selection as ExactScoreSelection) : null;
       const result = outcome ? (outcome.selection as OutcomeSelection).result : null;
       return {
@@ -145,8 +140,12 @@ export async function buildSocialData(opts: {
         mult: outcome?.stake_mult ?? 1,
         prop: prop
           ? {
-              label: PROP_LABEL[prop.bet_type],
-              player: playerName.get((prop.selection as FootballerSelection).footballer_id) ?? 'Unknown',
+              label: BONUS_LABEL[prop.bet_type as keyof typeof BONUS_LABEL],
+              detail: bonusDetail(prop, {
+                playerName: id => playerName.get(id),
+                homeTeam: m.home_team.name,
+                awayTeam: m.away_team.name,
+              }),
             }
           : null,
       };

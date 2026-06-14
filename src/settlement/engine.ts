@@ -3,12 +3,14 @@
 
 import {
   Bet,
+  CleanSheetSelection,
   ExactScoreSelection,
   FootballerSelection,
   LeagueConfig,
   Match,
   MatchEvent,
   OutcomeSelection,
+  OverUnderSelection,
 } from '@/types/db';
 import { BetUpdate, CurrencyDelta, SettleInput, SettleResult } from './types';
 
@@ -102,8 +104,16 @@ export function settleBet(bet: Bet, input: SettleInput): BetUpdate {
       return settleScorerProp(bet, match, events, mult, config, appearances, 'first');
     case 'anytime_scorer':
       return settleScorerProp(bet, match, events, mult, config, appearances, 'anytime');
+    case 'score_2plus':
+      return settleScorerProp(bet, match, events, mult, config, appearances, 'brace');
+    case 'anytime_assist':
+      return settleAssistProp(bet, match, events, mult, config, appearances);
     case 'carded':
       return settleCarded(bet, events, mult, config, appearances);
+    case 'over_under':
+      return settleOverUnder(bet, home, away, mult, config);
+    case 'clean_sheet':
+      return settleCleanSheet(bet, home, away, mult, config);
     default:
       // Unknown/retired bet type — settle as a no-op void rather than throw.
       return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
@@ -228,7 +238,7 @@ function settleScorerProp(
   mult: number,
   config: LeagueConfig,
   appearances: string[] | undefined,
-  kind: 'first' | 'anytime',
+  kind: 'first' | 'anytime' | 'brace',
 ): BetUpdate {
   const pickId = (bet.selection as FootballerSelection).footballer_id;
 
@@ -239,15 +249,92 @@ function settleScorerProp(
     return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
   }
 
+  const goalsByPick = events.filter(e => isScoringEvent(e) && e.footballer_id === pickId).length;
   const won =
     kind === 'first'
       ? firstScorerId(events) === pickId
-      : events.some(e => isScoringEvent(e) && e.footballer_id === pickId);
+      : kind === 'brace'
+        ? goalsByPick >= 2
+        : goalsByPick >= 1;
 
-  const basePoints = (kind === 'first' ? config.glory.first_goalscorer : config.glory.anytime_scorer) ?? 0;
+  const basePoints =
+    (kind === 'first'
+      ? config.glory.first_goalscorer
+      : kind === 'brace'
+        ? config.glory.score_2plus
+        : config.glory.anytime_scorer) ?? 0;
   const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
 
   return propResult(bet, pickId, won, points, config.coins.prop, appearances);
+}
+
+// Anytime assist: the chosen player is credited with an assist on any goal. Assist
+// events are only carried by the granular (api-football) feed; the same "scorers
+// haven't landed" gap that voids scorer props also hides assists, so we reuse that
+// guard rather than wrongly settle a correct pick as lost.
+function settleAssistProp(
+  bet: Bet,
+  match: Match,
+  events: MatchEvent[],
+  mult: number,
+  config: LeagueConfig,
+  appearances: string[] | undefined,
+): BetUpdate {
+  const pickId = (bet.selection as FootballerSelection).footballer_id;
+
+  if (scorerFeedMissing(match, events)) {
+    return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
+  }
+
+  const won = events.some(e => e.type === 'assist' && e.footballer_id === pickId);
+  const basePoints = config.glory.anytime_assist ?? 0;
+  const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
+
+  return propResult(bet, pickId, won, points, config.coins.prop, appearances);
+}
+
+// ─── score-derived bonus bets (not player-based) ──────────────────────────────
+
+// Over/Under total match goals. The line is fixed at 2.5 (never a push), so this is a
+// clean binary on the final score — no feed-completeness concerns like the props have.
+function settleOverUnder(
+  bet: Bet,
+  home: number,
+  away: number,
+  mult: number,
+  config: LeagueConfig,
+): BetUpdate {
+  const { line, direction } = bet.selection as OverUnderSelection;
+  const total = home + away;
+  const won = direction === 'over' ? total > line : total < line;
+  const basePoints = config.glory.over_under ?? 0;
+  return {
+    betId: bet.id,
+    status: won ? 'won' : 'lost',
+    pointsAwarded: won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0,
+    coinsAwarded: won ? config.coins.prop : 0,
+  };
+}
+
+// Clean sheet: the chosen team concedes zero. A 0–0 is a clean sheet for both sides,
+// so both picks win — that falls out naturally from reading the opponent's score.
+function settleCleanSheet(
+  bet: Bet,
+  home: number,
+  away: number,
+  mult: number,
+  config: LeagueConfig,
+): BetUpdate {
+  const { team } = bet.selection as CleanSheetSelection;
+  const conceded = team === 'home' ? away : home;
+  const won = conceded === 0;
+  const basePoints = config.glory.clean_sheet ?? 0;
+  return {
+    betId: bet.id,
+    status: won ? 'won' : 'lost',
+    pointsAwarded: won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0,
+    coinsAwarded: won ? config.coins.prop : 0,
+  };
 }
 
 function settleCarded(

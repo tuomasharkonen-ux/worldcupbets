@@ -11,13 +11,7 @@ import { Flag } from '@/components/ui/flag';
 import { currentSlateKey, slateKeyOf } from '@/lib/slate';
 import { computePlayerForm, type FormAppearance, type FormEvent, type FormMatch } from '@/lib/player-form';
 import type { Bet, Footballer, League, Match, Team } from '@/types/db';
-
-type PropField = 'first_scorer' | 'anytime_scorer' | 'carded';
-const PROP_LABELS: Record<PropField, string> = {
-  first_scorer: 'First scorer',
-  anytime_scorer: 'Anytime scorer',
-  carded: 'Carded',
-};
+import { BONUS_LABEL, bonusDetail, bonusBetToSlotValue, isBonusBet } from '@/lib/bonus-bets';
 
 const TIMEZONE = 'Europe/Helsinki';
 
@@ -97,7 +91,11 @@ export default async function MatchPage({
     props: {
       first_scorer: glory?.first_goalscorer ?? 0,
       anytime_scorer: glory?.anytime_scorer ?? 0,
+      score_2plus: glory?.score_2plus ?? 0,
+      anytime_assist: glory?.anytime_assist ?? 0,
       carded: glory?.carded ?? 0,
+      over_under: glory?.over_under ?? 0,
+      clean_sheet: glory?.clean_sheet ?? 0,
     },
   };
 
@@ -206,11 +204,9 @@ export default async function MatchPage({
   const outcomeBet = bets.find(b => b.bet_type === 'outcome');
   const exactBet = bets.find(b => b.bet_type === 'exact_score');
 
-  // One prop slot for now: take the first prop bet on the slip, if any.
-  const propBet = bets.find(b => (Object.keys(PROP_LABELS) as PropField[]).includes(b.bet_type as PropField));
-  const propSlot = propBet
-    ? { type: propBet.bet_type as PropField, playerId: (propBet.selection as { footballer_id: string }).footballer_id }
-    : null;
+  // One bonus slot: take the first bonus bet on the slip, if any.
+  const bonusBet = bets.find(b => isBonusBet(b.bet_type));
+  const bonusSlot = bonusBet ? bonusBetToSlotValue(bonusBet) : null;
 
   const existingForSlip = {
     outcome: outcomeBet
@@ -219,7 +215,7 @@ export default async function MatchPage({
     exactScore: exactBet
       ? (exactBet.selection as { home: number; away: number })
       : undefined,
-    propSlot,
+    bonusSlot,
     // One stake for the whole slip — recorded on the outcome bet (GAME_DESIGN §5).
     stake: outcomeBet?.stake_coins,
   };
@@ -291,10 +287,15 @@ export default async function MatchPage({
               } else if (b.bet_type === 'exact_score') {
                 const s = b.selection as { home: number; away: number };
                 label = `Score: ${s.home}–${s.away}`;
+              } else if (isBonusBet(b.bet_type)) {
+                const detail = bonusDetail(b, {
+                  playerName: id => playerName.get(id),
+                  homeTeam: match.home_team.name,
+                  awayTeam: match.away_team.name,
+                });
+                label = `${BONUS_LABEL[b.bet_type]}: ${detail}`;
               } else {
-                const propLabel = PROP_LABELS[b.bet_type as PropField] ?? b.bet_type;
-                const fid = (b.selection as { footballer_id: string }).footballer_id;
-                label = `${propLabel}: ${playerName.get(fid) ?? 'Unknown'}`;
+                label = b.bet_type;
               }
               const style = STATUS_STYLE[b.status as keyof typeof STATUS_STYLE] ?? STATUS_STYLE.pending;
               return (

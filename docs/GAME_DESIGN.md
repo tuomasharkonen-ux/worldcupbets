@@ -64,7 +64,7 @@ show an empty "No matches yet" state.
 
 Starting lineups are only confirmed ~20–40 min before kickoff. So:
 
-- Props that need a specific player (First/Anytime Goalscorer, Carded) let you pick **anyone in the 26-man squad**, not just the starting XI. If your pick doesn't play at all, that prop is **void** (stake refunded, no Glory).
+- Bonus bets that need a specific player (First/Anytime Goalscorer, Anytime Assist, To Score 2+, Carded) let you pick **anyone in the 26-man squad**, not just the starting XI. If your pick doesn't play at all, that bet is **void** (stake refunded, no Glory). The score-based bonus bets (Over/Under, Clean Sheet) have no such risk.
 - This keeps betting open early without punishing players for unknown lineups.
 
 ### Player form guide (in the prop picker)
@@ -84,13 +84,26 @@ To spare managers from researching every squad before each slate, the player pic
 
 Exact score is all-or-nothing — there is no goal-difference consolation. Worked example: you predict **2–1 home**. Final is **3–1 home** → outcome ✅ (+10), exact ❌ = **10 GP**. Final is **2–1 home** → outcome ✅ (+10) + exact ✅ (+25) = **35 GP**.
 
-### Player props — optional, one per match
+### Bonus bets — optional, one per match
 
-| Prop | Condition | Glory |
+A single optional **bonus bet** slot per slip, chosen from the same picker. Five are tied
+to a specific player (any of the 26-man squad); two are settled straight off the final
+score. Glory values scale inversely with how likely each is — the rarer the pick, the
+bigger the reward (rebalanced in migration `013`).
+
+| Bonus bet | Condition | Glory |
 | --- | --- | --- |
-| **First Goalscorer** | Your player scores the match's first goal | **+20 GP** |
+| **Total Goals (Over/Under)** | Match total is over / under 2.5 goals | **+6 GP** |
+| **Clean Sheet** | Your chosen team concedes no goals (a 0–0 wins both) | **+8 GP** |
 | **Anytime Goalscorer** | Your player scores at any point | **+10 GP** |
-| **Carded** | Your player gets a yellow or red | **+10 GP** |
+| **Carded** | Your player gets a yellow or red | **+12 GP** |
+| **Anytime Assist** | Your player assists a goal at any point | **+15 GP** |
+| **First Goalscorer** | Your player scores the match's first goal | **+20 GP** |
+| **To Score 2+** | Your player scores two or more goals | **+30 GP** |
+
+Goalscorer/assist/2+ exclude own goals, and (like the scorer markets) **void** rather than
+lose if the granular feed never lands. Over/Under and Clean Sheet read only the final
+score, so they always settle cleanly.
 
 ### Knockout multipliers (catch-up mechanic)
 
@@ -144,7 +157,7 @@ This is what makes scoring "hybrid" rather than pure-rubric. Before a match lock
 | Medium | 25¢ | ×1.5 |
 | Large | 50¢ | ×2.0 |
 
-- **One stake per match**, not per bet — its own section at the bottom of the slip, applying to the outcome, exact score, and any player prop together. Framed to players as **"Add a multiplier"** (not "stake"); the slip ends with a live **Potential max** counter showing best-case Points across the current picks, updating as picks and the multiplier change.
+- **One stake per match**, not per bet — its own section at the bottom of the slip, applying to the outcome, exact score, and any bonus bet together. Framed to players as **"Add a multiplier"** (not "stake"); the slip ends with a live **Potential max** counter showing best-case Points across the current picks, updating as picks and the multiplier change.
 - Stake cap starts at **50¢** per match (raisable via upgrade).
 - Stake multipliers stack with knockout multipliers, **uncapped** — a Final (×2.0) with a Large stake (×2.0) compounds to ×4.0.
 - Staking is opt-in: a player can ignore it entirely and still compete on the fixed rubric.

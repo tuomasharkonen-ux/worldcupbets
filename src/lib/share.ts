@@ -3,19 +3,8 @@
 // preview (client) — the caller supplies a footballer-id → name map.
 
 import { toFlagEmoji } from './country-flags';
-import type { Bet, ExactScoreSelection, FootballerSelection } from '@/types/db';
-
-// Phrasing per prop type for the share digest. First vs anytime scorer read
-// differently on purpose; distinct from the on-screen PROP_LABEL badges.
-const PROP_SHARE: Record<string, (player: string) => string> = {
-  first_scorer: p => `${p} to score first`,
-  anytime_scorer: p => `${p} to score`,
-  carded: p => `${p} booked`,
-};
-
-export function isShareProp(betType: string): boolean {
-  return betType in PROP_SHARE;
-}
+import type { Bet, ExactScoreSelection } from '@/types/db';
+import { bonusShareText, isBonusBet } from './bonus-bets';
 
 type ShareTeam = { name: string; country_code: string };
 type ShareMatch = { id: string; home_team: ShareTeam; away_team: ShareTeam };
@@ -45,10 +34,15 @@ export function buildSlateShareText(
     const multTag = mult > 1 ? ` ⚡×${mult}` : '';
     lines.push(`${home} ${sel.home}–${sel.away} ${away}${multTag}`);
 
-    const prop = bs.find(b => isShareProp(b.bet_type));
-    if (prop) {
-      const name = playerName.get((prop.selection as FootballerSelection).footballer_id) ?? 'Player';
-      lines.push(PROP_SHARE[prop.bet_type](name));
+    const bonus = bs.find(b => isBonusBet(b.bet_type));
+    if (bonus) {
+      lines.push(
+        bonusShareText(bonus, {
+          playerName: id => playerName.get(id),
+          homeTeam: m.home_team.name,
+          awayTeam: m.away_team.name,
+        }),
+      );
     }
   }
   lines.push('', '🔗 https://worldcupbets.vercel.app');

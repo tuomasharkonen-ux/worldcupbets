@@ -9,13 +9,7 @@ import { BetSlip } from '@/app/matches/[matchId]/BetSlip';
 import type { BetSlipState } from '@/app/matches/[matchId]/actions';
 import { ScreenFrame } from './ScreenFrame';
 import { MOCK_SCORING, MOCK_SQUADS, MOCK_STAKE, TEAMS, finishedMatchData } from '../mock';
-
-type PropField = 'first_scorer' | 'anytime_scorer' | 'carded';
-const PROP_LABELS: Record<PropField, string> = {
-  first_scorer: 'First scorer',
-  anytime_scorer: 'Anytime scorer',
-  carded: 'Carded',
-};
+import { BONUS_LABEL, bonusDetail, isBonusBet } from '@/lib/bonus-bets';
 
 const TIMEZONE = 'Europe/Helsinki';
 function formatKickoff(utcString: string) {
@@ -140,10 +134,15 @@ export function MatchScreen({ variant }: { variant: 'betslip' | 'finished' }) {
             } else if (b.bet_type === 'exact_score') {
               const s = b.selection as { home: number; away: number };
               label = `Score: ${s.home}–${s.away}`;
+            } else if (isBonusBet(b.bet_type)) {
+              const detail = bonusDetail(b, {
+                playerName: id => playerName.get(id),
+                homeTeam: match.home_team.name,
+                awayTeam: match.away_team.name,
+              });
+              label = `${BONUS_LABEL[b.bet_type]}: ${detail}`;
             } else {
-              const propLabel = PROP_LABELS[b.bet_type as PropField] ?? b.bet_type;
-              const fid = (b.selection as { footballer_id: string }).footballer_id;
-              label = `${propLabel}: ${playerName.get(fid) ?? 'Unknown'}`;
+              label = b.bet_type;
             }
             const style = STATUS_STYLE[b.status as keyof typeof STATUS_STYLE] ?? STATUS_STYLE.pending;
             return (

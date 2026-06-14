@@ -40,7 +40,7 @@ export interface SlipRowData {
   /** Resolved outcome label — a team name or 'Draw'. */
   outcome: string | null;
   mult: number;
-  prop: { label: string; player: string } | null;
+  prop: { label: string; detail: string } | null;
 }
 
 export interface SlipMatchData {
@@ -283,7 +283,7 @@ function SlipMatchOverview({ match }: { match: SlipMatchData }) {
             </div>
             {row.prop && (
               <p className="pl-6 text-xs text-subtle">
-                {row.prop.label}: <span className="text-muted">{row.prop.player}</span>
+                {row.prop.label}: <span className="text-muted">{row.prop.detail}</span>
               </p>
             )}
           </div>

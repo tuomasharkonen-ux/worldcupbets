@@ -247,10 +247,19 @@ describe('coin income (per-bet)', () => {
   });
 });
 
-// Config including Phase 2 prop values (the v1 fixture predates them).
+// Config including Phase 2 prop values + bonus bets (the v1 fixture predates them).
 const propConfig: LeagueConfig = {
   ...config,
-  glory: { ...config.glory, first_goalscorer: 20, anytime_scorer: 10, carded: 10 },
+  glory: {
+    ...config.glory,
+    first_goalscorer: 20,
+    anytime_scorer: 10,
+    carded: 10,
+    score_2plus: 30,
+    anytime_assist: 15,
+    clean_sheet: 8,
+    over_under: 6,
+  },
 };
 
 function makeEvent(overrides: Partial<MatchEvent>): MatchEvent {
@@ -440,6 +449,130 @@ describe('prop void logic (non-appearance)', () => {
     const result = settle({ match, bets: [bet], events, config: propConfig }); // no appearances
 
     expect(result.betUpdates[0].status).toBe('lost');
+  });
+});
+
+describe('player to score 2+ (brace) prop', () => {
+  test('two goals by the pick → won', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', minute: 20 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-1', minute: 70 }),
+    ];
+    const bet = makeBet({ bet_type: 'score_2plus', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(30); // score_2plus base
+  });
+
+  test('a single goal by the pick → lost', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', minute: 20 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-2', minute: 70 }),
+    ];
+    const bet = makeBet({ bet_type: 'score_2plus', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-1'] });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
+
+  test('a brace including a penalty counts; own goals do not', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', type: 'penalty', minute: 12 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-1', minute: 60 }),
+      makeEvent({ id: 'e3', footballer_id: 'plr-1', type: 'own_goal', is_own_goal: true, minute: 80 }),
+    ];
+    const bet = makeBet({ bet_type: 'score_2plus', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won'); // penalty + open-play goal = 2
+  });
+});
+
+describe('anytime assist prop', () => {
+  test('pick records an assist → won', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', type: 'goal', minute: 20 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-7', type: 'assist', minute: 20 }),
+    ];
+    const bet = makeBet({ bet_type: 'anytime_assist', selection: { footballer_id: 'plr-7' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(15); // anytime_assist base
+  });
+
+  test('pick appeared but did not assist → lost', () => {
+    const events = [
+      makeEvent({ id: 'e1', footballer_id: 'plr-1', type: 'goal', minute: 20 }),
+      makeEvent({ id: 'e2', footballer_id: 'plr-2', type: 'assist', minute: 20 }),
+    ];
+    const bet = makeBet({ bet_type: 'anytime_assist', selection: { footballer_id: 'plr-7' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-7'] });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
+
+  test('voids (not lost) when the scorer/assist feed has not landed', () => {
+    // 2–1 on the board but no goal events → the assist feed is missing too.
+    const bet = makeBet({ bet_type: 'anytime_assist', selection: { footballer_id: 'plr-7' } });
+    const result = settle({ match, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('void');
+  });
+});
+
+describe('over/under total goals', () => {
+  // Fixture is 2–1: three goals, so over 2.5 wins and under 2.5 loses.
+  test('over 2.5 wins when the match has 3 goals', () => {
+    const bet = makeBet({ bet_type: 'over_under', selection: { line: 2.5, direction: 'over' } });
+    const result = settle({ match, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(6); // over_under base
+  });
+
+  test('under 2.5 loses when the match has 3 goals', () => {
+    const bet = makeBet({ bet_type: 'over_under', selection: { line: 2.5, direction: 'under' } });
+    const result = settle({ match, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
+
+  test('under 2.5 wins on a low-scoring match', () => {
+    const lowScore: Match = { ...match, home_score: 1, away_score: 0 };
+    const bet = makeBet({ bet_type: 'over_under', selection: { line: 2.5, direction: 'under' } });
+    const result = settle({ match: lowScore, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+  });
+});
+
+describe('clean sheet', () => {
+  test('away team conceding loses the home clean-sheet pick (fixture 2–1)', () => {
+    const bet = makeBet({ bet_type: 'clean_sheet', selection: { team: 'home' } });
+    const result = settle({ match, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('lost'); // away scored 1
+  });
+
+  test('home clean sheet wins when the opponent fails to score', () => {
+    const shutout: Match = { ...match, home_score: 2, away_score: 0 };
+    const bet = makeBet({ bet_type: 'clean_sheet', selection: { team: 'home' } });
+    const result = settle({ match: shutout, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('won');
+    expect(result.betUpdates[0].pointsAwarded).toBe(8); // clean_sheet base
+  });
+
+  test('a 0–0 is a clean sheet for both teams', () => {
+    const goalless: Match = { ...match, home_score: 0, away_score: 0 };
+    const home = makeBet({ id: 'cs-h', bet_type: 'clean_sheet', selection: { team: 'home' } });
+    const away = makeBet({ id: 'cs-a', bet_type: 'clean_sheet', selection: { team: 'away' } });
+    const result = settle({ match: goalless, bets: [home, away], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates.find(u => u.betId === 'cs-h')?.status).toBe('won');
+    expect(result.betUpdates.find(u => u.betId === 'cs-a')?.status).toBe('won');
   });
 });
 

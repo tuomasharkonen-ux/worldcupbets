@@ -13,8 +13,13 @@ import {
 } from '@/components/ui/dialog';
 import type { PlayerFormStats } from '@/lib/player-form';
 import type { PlayerAvailability } from '@/types/db';
-
-export type PropType = 'first_scorer' | 'anytime_scorer' | 'carded';
+import {
+  BONUS_BET_TYPES,
+  BONUS_LABEL,
+  isPlayerBonusBet,
+  OVER_UNDER_LINE,
+  type BonusBetType,
+} from '@/lib/bonus-bets';
 
 export interface SlipPlayer {
   id: string;
@@ -35,13 +40,16 @@ export interface SlipSquads {
   awayPlayers: SlipPlayer[];
 }
 
-export const PROP_META: Record<PropType, { label: string; hint: string; blurb: string }> = {
-  first_scorer: { label: 'First goalscorer', hint: '+20 pts', blurb: 'Your player scores the match’s first goal (own goals excluded).' },
-  anytime_scorer: { label: 'Anytime goalscorer', hint: '+10 pts', blurb: 'Your player scores at any point in the match.' },
-  carded: { label: 'Booked', hint: '+10 pts', blurb: 'Your player gets a yellow or red card.' },
+// One-line "what it is" per market, shown under each option in the picker.
+const BONUS_BLURB: Record<BonusBetType, string> = {
+  first_scorer: 'Your player scores the match’s first goal (own goals excluded).',
+  anytime_scorer: 'Your player scores at any point in the match.',
+  score_2plus: 'Your player scores two or more goals.',
+  anytime_assist: 'Your player assists a goal at any point in the match.',
+  carded: 'Your player gets a yellow or red card.',
+  over_under: `Total goals in the match, over or under ${OVER_UNDER_LINE}.`,
+  clean_sheet: 'A team keeps a clean sheet (concedes no goals).',
 };
-
-const PROP_ORDER: PropType[] = ['first_scorer', 'anytime_scorer', 'carded'];
 
 // ─── position handling ─────────────────────────────────────────────────────────
 
@@ -70,8 +78,9 @@ const POS_BADGE: Record<PosCat, string> = {
   FWD: 'bg-[color-mix(in_oklab,var(--color-accent)_24%,transparent)] text-accent',
 };
 
-// Relevance to the prop: forwards first for goals, defenders/mids first for cards.
-function relevanceRank(cat: PosCat | null, kind: PropType): number {
+// Relevance to the market: defenders/mids first for cards, forwards first for goals
+// and assists.
+function relevanceRank(cat: PosCat | null, kind: BonusBetType): number {
   const order: PosCat[] = kind === 'carded' ? ['DEF', 'MID', 'FWD', 'GK'] : ['FWD', 'MID', 'DEF', 'GK'];
   const i = cat ? order.indexOf(cat) : -1;
   return i === -1 ? order.length : i; // unknown position sinks to the bottom
@@ -114,30 +123,34 @@ function statusWarning(p: SlipPlayer): { text: string; cls: string } | null {
   return null;
 }
 
-interface SlotValue {
-  type: PropType;
-  playerId: string;
+// The slot's value: a market plus its parameter. `value` is a footballer id for the
+// player markets, 'over'/'under' for over_under, or 'home'/'away' for clean_sheet.
+export interface BonusSlotValue {
+  type: BonusBetType;
+  value: string;
 }
 
 interface Props {
   squads: SlipSquads;
-  defaultValue: SlotValue | null;
+  defaultValue: BonusSlotValue | null;
   locked: boolean;
-  /** Notified whenever the chosen prop changes (for live previews). */
-  onChange?: (value: SlotValue | null) => void;
+  /** Points per market, for the picker hint (sourced from live config, never hardcoded). */
+  points: Record<BonusBetType, number>;
+  /** Notified whenever the chosen bonus bet changes (drives the live max-winnings counter). */
+  onChange?: (value: BonusSlotValue | null) => void;
 }
 
-export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
-  const [value, setValue] = useState<SlotValue | null>(defaultValue);
+export function BonusSlot({ squads, defaultValue, locked, points, onChange }: Props) {
+  const [value, setValue] = useState<BonusSlotValue | null>(defaultValue);
 
   // Surface selection changes to the parent (max-winnings counter) without making
-  // this a fully controlled component — the hidden input still drives submission.
+  // this a fully controlled component — the hidden inputs still drive submission.
   useEffect(() => {
     onChange?.(value);
   }, [value, onChange]);
   const [open, setOpen] = useState(false);
-  const [step, setStep] = useState<'type' | 'player'>('type');
-  const [pendingType, setPendingType] = useState<PropType | null>(null);
+  const [step, setStep] = useState<'type' | 'player' | 'param'>('type');
+  const [pendingType, setPendingType] = useState<BonusBetType | null>(null);
   const [search, setSearch] = useState('');
   const [posFilter, setPosFilter] = useState<PosCat | 'all'>('all');
 
@@ -164,6 +177,17 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
 
   const fmtPlayer = (p: SlipPlayer) => (p.squad_number != null ? `${p.squad_number}. ${p.name}` : p.name);
 
+  // Human-readable detail for a chosen bonus bet (player name, the O/U side, or team).
+  function detailOf(v: BonusSlotValue): string {
+    if (isPlayerBonusBet(v.type)) {
+      const p = playerById.get(v.value);
+      return p ? fmtPlayer(p) : 'Unknown player';
+    }
+    if (v.type === 'over_under') return `${v.value === 'over' ? 'Over' : 'Under'} ${OVER_UNDER_LINE} goals`;
+    if (v.type === 'clean_sheet') return v.value === 'home' ? squads.homeTeam : squads.awayTeam;
+    return '';
+  }
+
   function openModal() {
     setStep('type');
     setPendingType(null);
@@ -172,15 +196,15 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
     setOpen(true);
   }
 
-  function chooseType(type: PropType) {
+  function chooseType(type: BonusBetType) {
     setPendingType(type);
     setSearch('');
     setPosFilter('all');
-    setStep('player');
+    setStep(isPlayerBonusBet(type) ? 'player' : 'param');
   }
 
-  function choosePlayer(playerId: string) {
-    if (pendingType) setValue({ type: pendingType, playerId });
+  function commit(type: BonusBetType, val: string) {
+    setValue({ type, value: val });
     setOpen(false);
   }
 
@@ -208,20 +232,39 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
       return cat === 'all' || posCategory(p.position) === cat;
     }).length;
 
-  const chosenPlayer = value ? playerById.get(value.playerId) : undefined;
+  const chosenPlayer = value && isPlayerBonusBet(value.type) ? playerById.get(value.value) : undefined;
+
+  // The two options offered on the non-player param step.
+  const paramOptions: { value: string; label: string }[] =
+    pendingType === 'over_under'
+      ? [
+          { value: 'over', label: `Over ${OVER_UNDER_LINE} goals` },
+          { value: 'under', label: `Under ${OVER_UNDER_LINE} goals` },
+        ]
+      : pendingType === 'clean_sheet'
+        ? [
+            { value: 'home', label: `${squads.homeTeam} clean sheet` },
+            { value: 'away', label: `${squads.awayTeam} clean sheet` },
+          ]
+        : [];
 
   return (
     <>
-      {/* Hidden field carries the slot into the form: name = prop type, value = footballer id */}
-      {value && <input type="hidden" name={value.type} value={value.playerId} />}
+      {/* Hidden fields carry the slot into the form: market type + its parameter. */}
+      {value && (
+        <>
+          <input type="hidden" name="bonus_type" value={value.type} />
+          <input type="hidden" name="bonus_value" value={value.value} />
+        </>
+      )}
 
       {value ? (
         <div className="space-y-2.5 rounded-2xl border border-border-strong bg-surface-2 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <p className="text-xs text-points">{PROP_META[value.type].label}</p>
+              <p className="text-xs text-points">{BONUS_LABEL[value.type]}</p>
               <p className="truncate font-display text-sm font-semibold text-foreground">
-                {chosenPlayer ? fmtPlayer(chosenPlayer) : 'Unknown player'}
+                {detailOf(value)}
               </p>
               {(() => {
                 const warning = chosenPlayer && statusWarning(chosenPlayer);
@@ -233,7 +276,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                 <button
                   type="button"
                   onClick={openModal}
-                  aria-label="Change prop"
+                  aria-label="Change bonus bet"
                   className="grid size-9 place-items-center rounded-xl text-subtle transition-colors hover:bg-[rgba(255,255,255,0.06)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
                 >
                   <Pencil className="size-4" aria-hidden />
@@ -241,7 +284,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                 <button
                   type="button"
                   onClick={() => setValue(null)}
-                  aria-label="Remove prop"
+                  aria-label="Remove bonus bet"
                   className="grid size-9 place-items-center rounded-xl text-subtle transition-colors hover:bg-[color-mix(in_oklab,var(--color-danger)_16%,transparent)] hover:text-danger focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
                 >
                   <X className="size-4" aria-hidden />
@@ -252,7 +295,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
         </div>
       ) : locked ? (
         <p className="rounded-2xl border border-border bg-surface-2 px-4 py-3 text-sm text-subtle">
-          No player bet.
+          No bonus bet.
         </p>
       ) : (
         <button
@@ -261,7 +304,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
           className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-border-strong bg-surface-2/40 px-4 py-5 font-display text-sm font-semibold text-muted transition-colors hover:border-[var(--color-primary-bright)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
         >
           <Plus className="size-5" aria-hidden />
-          Add a player bet
+          Add a bonus bet
         </button>
       )}
 
@@ -269,26 +312,53 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
         <DialogContent className="gap-0" showClose>
           {step === 'type' ? (
             <>
-              <DialogTitle>Add a player bet</DialogTitle>
-              <DialogDescription className="mt-1">Pick one prop to fill this slot.</DialogDescription>
+              <DialogTitle>Add a bonus bet</DialogTitle>
+              <DialogDescription className="mt-1">Pick one bonus bet to fill this slot.</DialogDescription>
+              <div className="-mr-2 mt-4 max-h-[60vh] space-y-2.5 overflow-y-auto pr-2">
+                {BONUS_BET_TYPES.map(type => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => chooseType(type)}
+                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-surface-2 px-4 py-3 text-left transition-colors hover:border-[var(--color-primary-bright)] hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-display text-sm font-semibold text-foreground">{BONUS_LABEL[type]}</span>
+                      <span className="block text-xs text-subtle">{BONUS_BLURB[type]}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-sm font-semibold text-points">+{points[type]} pts</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : step === 'param' ? (
+            <>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setStep('type')}
+                  aria-label="Back to bonus bets"
+                  className="-ml-1 grid size-8 place-items-center rounded-full text-subtle transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
+                >
+                  <ChevronLeft className="size-5" aria-hidden />
+                </button>
+                <DialogTitle>{pendingType ? BONUS_LABEL[pendingType] : 'Choose'}</DialogTitle>
+              </div>
+              <DialogDescription className="sr-only">Choose an option for this bonus bet.</DialogDescription>
               <div className="mt-4 space-y-2.5">
-                {PROP_ORDER.map(type => {
-                  const meta = PROP_META[type];
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => chooseType(type)}
-                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border bg-surface-2 px-4 py-3 text-left transition-colors hover:border-[var(--color-primary-bright)] hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
-                    >
-                      <span className="min-w-0">
-                        <span className="block font-display text-sm font-semibold text-foreground">{meta.label}</span>
-                        <span className="block text-xs text-subtle">{meta.blurb}</span>
-                      </span>
-                      <span className="shrink-0 font-mono text-sm font-semibold text-points">{meta.hint}</span>
-                    </button>
-                  );
-                })}
+                {paramOptions.map(opt => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => pendingType && commit(pendingType, opt.value)}
+                    className="flex w-full items-center gap-3 rounded-2xl border border-border bg-surface-2 px-4 py-3.5 text-left font-display text-sm font-semibold text-foreground transition-colors hover:border-[var(--color-primary-bright)] hover:bg-surface-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
+                  >
+                    {pendingType === 'clean_sheet' && (
+                      <Flag name={opt.value === 'home' ? squads.homeTeam : squads.awayTeam} size="md" />
+                    )}
+                    {opt.label}
+                  </button>
+                ))}
               </div>
             </>
           ) : (
@@ -297,14 +367,14 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                 <button
                   type="button"
                   onClick={() => setStep('type')}
-                  aria-label="Back to prop types"
+                  aria-label="Back to bonus bets"
                   className="-ml-1 grid size-8 place-items-center rounded-full text-subtle transition-colors hover:bg-[rgba(255,255,255,0.08)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
                 >
                   <ChevronLeft className="size-5" aria-hidden />
                 </button>
-                <DialogTitle>{pendingType ? PROP_META[pendingType].label : 'Choose a player'}</DialogTitle>
+                <DialogTitle>{pendingType ? BONUS_LABEL[pendingType] : 'Choose a player'}</DialogTitle>
               </div>
-              <DialogDescription className="sr-only">Choose a player for this prop.</DialogDescription>
+              <DialogDescription className="sr-only">Choose a player for this bonus bet.</DialogDescription>
 
               <div className="mt-4 flex items-center gap-1.5">
                 <div className="relative flex-1">
@@ -377,7 +447,7 @@ export function PropSlot({ squads, defaultValue, locked, onChange }: Props) {
                                 <button
                                   key={p.id}
                                   type="button"
-                                  onClick={() => choosePlayer(p.id)}
+                                  onClick={() => pendingType && commit(pendingType, p.id)}
                                   className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-primary-bright)]"
                                 >
                                   <span className="w-7 shrink-0 text-center font-mono text-xs text-subtle">

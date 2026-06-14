@@ -760,6 +760,22 @@ async function fetchMatchEventsFromAf(match: Match): Promise<FetchedMatchData> {
   for (const e of events) {
     const row = afEventToRow(e, byAfId, match.id);
     if (row) eventRows.push(row);
+
+    // A scored goal's assister → a separate `assist` event row (settles anytime-assist
+    // bets). AF carries the assister in `e.assist` on Goal events; own goals and missed
+    // penalties have no meaningful assist. This data was previously fetched and dropped.
+    if (e.type === 'Goal' && e.detail !== 'Own Goal' && e.detail !== 'Missed Penalty' && e.assist?.id != null) {
+      const assistId = byAfId.get(e.assist.id) ?? null;
+      if (assistId) {
+        eventRows.push({
+          match_id: match.id,
+          footballer_id: assistId,
+          type: 'assist',
+          minute: e.time?.elapsed ?? null,
+          is_own_goal: false,
+        });
+      }
+    }
   }
 
   // Appearances: starting XI from lineups + both players named in every substitution

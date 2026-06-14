@@ -4,23 +4,12 @@ import { db } from '@/lib/supabase';
 import { requireManager } from '@/lib/session';
 import { redirect } from 'next/navigation';
 import type { BetType, League } from '@/types/db';
+import { buildBonusSelection, isBonusBet, isPlayerBonusBet } from '@/lib/bonus-bets';
 
 export type BetSlipState = {
   error?: string;
   success?: boolean;
 };
-
-// The three optional player props, in display order. Each maps a form field to a
-// bet_type; the field value is a footballer UUID (or '' for none).
-const PROP_FIELDS: { field: string; betType: BetType }[] = [
-  { field: 'first_scorer', betType: 'first_scorer' },
-  { field: 'anytime_scorer', betType: 'anytime_scorer' },
-  { field: 'carded', betType: 'carded' },
-];
-
-// One prop slot for now (more slots are planned). The engine already supports
-// multiple prop bets per match, so raising this is the only change needed here.
-const MAX_PROP_SLOTS = 1;
 
 export async function submitBet(
   matchId: string,
@@ -51,10 +40,10 @@ export async function submitBet(
   const awayScoreRaw = formData.get('away_score') as string | null;
   const hasExactScore = homeScoreRaw !== null && homeScoreRaw !== '' && awayScoreRaw !== null && awayScoreRaw !== '';
 
-  // Collect chosen props (non-empty selects)
-  const chosenProps = PROP_FIELDS
-    .map(p => ({ ...p, footballerId: (formData.get(p.field) as string | null)?.trim() || '' }))
-    .filter(p => p.footballerId !== '');
+  // The optional bonus bet (one slot): a (type, value) pair. Value is a footballer
+  // UUID for the player markets, or 'over'/'under', or 'home'/'away'. Empty type = none.
+  const bonusType = ((formData.get('bonus_type') as string | null)?.trim() || '') as BetType | '';
+  const bonusValue = (formData.get('bonus_value') as string | null)?.trim() || '';
 
   // Core bets are mandatory.
   if (!outcomeResult) {
@@ -63,8 +52,29 @@ export async function submitBet(
   if (!hasExactScore) {
     return { error: 'Enter an exact score.' };
   }
-  if (chosenProps.length > MAX_PROP_SLOTS) {
-    return { error: `Only ${MAX_PROP_SLOTS} player bet allowed for now.` };
+
+  // Validate the bonus bet (if any) and build its selection payload.
+  let bonusBet: { betType: BetType; selection: Record<string, unknown> } | null = null;
+  if (bonusType !== '') {
+    if (!isBonusBet(bonusType)) {
+      return { error: 'Invalid bonus bet.' };
+    }
+    const selection = buildBonusSelection(bonusType, bonusValue);
+    if (!selection) {
+      return { error: 'Invalid bonus bet selection.' };
+    }
+    // Player markets: the picked footballer must belong to one of the two teams.
+    if (isPlayerBonusBet(bonusType)) {
+      const { data: validPlayers } = await db
+        .from('footballers')
+        .select('id')
+        .in('team_id', [match.home_team_id, match.away_team_id]);
+      const validIds = new Set((validPlayers ?? []).map(p => p.id as string));
+      if (!validIds.has(bonusValue)) {
+        return { error: 'A selected player is not in this match.' };
+      }
+    }
+    bonusBet = { betType: bonusType, selection: selection as Record<string, unknown> };
   }
 
   // Validate exact score values
@@ -76,18 +86,6 @@ export async function submitBet(
     homeScore > 20 || awayScore > 20
   ) {
     return { error: 'Exact score values must be between 0 and 20.' };
-  }
-
-  // Validate picked footballers belong to one of the two teams in this match
-  if (chosenProps.length > 0) {
-    const { data: validPlayers } = await db
-      .from('footballers')
-      .select('id')
-      .in('team_id', [match.home_team_id, match.away_team_id]);
-    const validIds = new Set((validPlayers ?? []).map(p => p.id as string));
-    if (chosenProps.some(p => !validIds.has(p.footballerId))) {
-      return { error: 'A selected player is not in this match.' };
-    }
   }
 
   if (!['home', 'draw', 'away'].includes(outcomeResult)) {
@@ -160,8 +158,8 @@ export async function submitBet(
     { ...base, bet_type: 'exact_score', selection: { home: homeScore, away: awayScore }, stake_coins: 0 },
   ];
 
-  for (const p of chosenProps) {
-    newBets.push({ ...base, bet_type: p.betType, selection: { footballer_id: p.footballerId }, stake_coins: 0 });
+  if (bonusBet) {
+    newBets.push({ ...base, bet_type: bonusBet.betType, selection: bonusBet.selection, stake_coins: 0 });
   }
 
   const { error } = await db.from('bets').insert(newBets);

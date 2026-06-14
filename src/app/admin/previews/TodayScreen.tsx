@@ -12,7 +12,8 @@ import { ShareBetsButton } from '@/app/today/ShareBetsButton';
 import { Social } from '@/app/today/Social';
 import { slateLabel } from '@/lib/slate';
 import { buildSlateShareText } from '@/lib/share';
-import type { Bet, ExactScoreSelection, FootballerSelection, OutcomeSelection } from '@/types/db';
+import type { Bet, ExactScoreSelection, OutcomeSelection } from '@/types/db';
+import { BONUS_LABEL, bonusDetail, isBonusBet } from '@/lib/bonus-bets';
 import { ScreenFrame } from './ScreenFrame';
 import { MOCK_RECAP, MOCK_RECAP_ROUGH, socialData, todayScenario, type MatchRow, type TodayVariant } from '../mock';
 
@@ -27,13 +28,7 @@ function formatKickoff(utc: string) {
   }).format(new Date(utc));
 }
 
-const PROP_LABEL: Record<string, string> = {
-  first_scorer: 'First scorer',
-  anytime_scorer: 'Anytime scorer',
-  carded: 'Booked',
-};
-
-// The mock slate's lone prop pick is on footballer 'p-x' (see mock.ts); name it so the
+// The mock slate's lone bonus pick is on footballer 'p-x' (see mock.ts); name it so the
 // all-set preview reads like the real page, which resolves names from the DB.
 const PROP_PLAYER_NAME = new Map<string, string>([['p-x', 'A. Striker']]);
 
@@ -142,10 +137,16 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
     const bs: Bet[] = betsByMatch.get(m.id) ?? [];
     const outcome = bs.find(b => b.bet_type === 'outcome')!;
     const exact = bs.find(b => b.bet_type === 'exact_score')!;
-    const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+    const bonus = bs.find(b => isBonusBet(b.bet_type));
     const ex = exact.selection as ExactScoreSelection;
     const mult = outcome.stake_mult; // one stake/multiplier per match slip
-    const propPlayer = prop ? PROP_PLAYER_NAME.get((prop.selection as FootballerSelection).footballer_id) : null;
+    const bonusText = bonus
+      ? bonusDetail(bonus, {
+          playerName: id => PROP_PLAYER_NAME.get(id),
+          homeTeam: m.home_team.name,
+          awayTeam: m.away_team.name,
+        })
+      : null;
 
     return (
       <div className="glass flex flex-col gap-3 rounded-2xl px-4 py-3.5">
@@ -163,10 +164,10 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
           </span>
         </div>
 
-        {prop && (
+        {bonus && (
           <div className="flex items-center justify-center gap-1.5 text-xs text-muted">
-            <span className="text-subtle">{PROP_LABEL[prop.bet_type]}:</span>
-            <span className="font-medium text-foreground">{propPlayer ?? 'Unknown'}</span>
+            <span className="text-subtle">{BONUS_LABEL[bonus.bet_type as keyof typeof BONUS_LABEL]}:</span>
+            <span className="font-medium text-foreground">{bonusText ?? 'Unknown'}</span>
           </div>
         )}
 
@@ -198,7 +199,7 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
     const bs: Bet[] = betsByMatch.get(m.id) ?? [];
     const outcome = bs.find(b => b.bet_type === 'outcome');
     const exact = bs.find(b => b.bet_type === 'exact_score');
-    const prop = bs.find(b => PROP_LABEL[b.bet_type]);
+    const bonus = bs.find(b => isBonusBet(b.bet_type));
     const complete = hasCompleteCore(m.id);
     const totalStake = bs.reduce((s, b) => s + b.stake_coins, 0);
 
@@ -238,7 +239,7 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
                 {outcomeLabel((outcome!.selection as OutcomeSelection).result, m.home_team.name, m.away_team.name)}
                 {' · '}
                 {(exact!.selection as ExactScoreSelection).home}–{(exact!.selection as ExactScoreSelection).away}
-                {prop ? ' · player bet' : ''}
+                {bonus ? ' · bonus bet' : ''}
               </span>
               {totalStake > 0 && <Badge variant="primary" size="sm">{totalStake}¢ staked</Badge>}
               {editable && !locked && <Pencil className="size-3.5 shrink-0 text-subtle" aria-hidden />}

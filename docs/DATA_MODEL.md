@@ -37,7 +37,7 @@ Single-row global config. Keeps tunable values out of the code.
 
 `config.max_managers` (default 20, migration `006`) caps how many players can join — the cap is enforced in the join server action, not the DB.
 
-`config.glory` holds the Glory payouts: `outcome_correct` (10), `exact_score_bonus` (25), and the player props `first_goalscorer` (20), `anytime_scorer` (10), `carded` (10). Prop values were added in migration `002`. (A `glory.participation` placeholder existed in `001`; Phase 3 retires it — participation is a **Coin** reward, never Glory. The `goal_difference` bonus and the `stat_leader` prop were both later removed — exact score is now all-or-nothing, and Stat Leader was never implemented.)
+`config.glory` holds the Glory payouts: `outcome_correct` (10), `exact_score_bonus` (25), and the bonus bets `first_goalscorer` (20), `anytime_scorer` (10), `carded` (12), `score_2plus` (30), `anytime_assist` (15), `clean_sheet` (8), `over_under` (6). The player props were added in migration `002`; migration `013` added the four new bonus bets and rebalanced `carded`/`anytime_scorer` (rarer = worth more). (A `glory.participation` placeholder existed in `001`; Phase 3 retires it — participation is a **Coin** reward, never Glory. The `goal_difference` bonus and the `stat_leader` prop were both later removed — exact score is now all-or-nothing, and Stat Leader was never implemented.)
 
 > **Per-bet Coin rubric (migration `003`)** sets `config.coins.*` per-bet keys —
 > `outcome` (5), `exact` (10), `prop` (4). (The `goal_difference` Coin reward and
@@ -132,14 +132,15 @@ The 104 fixtures.
 | `winner_team_id` | uuid FK → teams | migration `009`; the true winner from football-data `score.winner` (a knockout decided on penalties leaves the scoreline level). Null for groups/draws. Powers the favorite-team champion/3rd-place milestones |
 
 ### `match_events`
-Goals and cards, from football-data.org. Powers goalscorer/card props.
+Goals, cards and assists. Powers goalscorer/card/assist props. Assists are only carried by
+the granular API-Football feed (migration `013`); football-data has no scorer detail for WC.
 
 | Column | Type | Notes |
 | --- | --- | --- |
 | `id` | uuid PK | |
 | `match_id` | uuid FK → matches | |
-| `footballer_id` | uuid FK → footballers | nullable (e.g. own goal) |
-| `type` | text | `goal` \| `own_goal` \| `yellow` \| `red` \| `penalty` |
+| `footballer_id` | uuid FK → footballers | nullable (e.g. own goal); the assister on `assist` rows |
+| `type` | text | `goal` \| `own_goal` \| `yellow` \| `red` \| `penalty` \| `assist` |
 | `minute` | int | used to derive "first" goalscorer |
 | `is_own_goal` | bool | scorer not credited for props |
 
@@ -176,7 +177,7 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 | `id` | uuid PK | |
 | `manager_id` | uuid FK → managers | |
 | `match_id` | uuid FK → matches | |
-| `bet_type` | text | `outcome` \| `exact_score` \| `first_scorer` \| `anytime_scorer` \| `carded` (migration `008` dropped the never-implemented `stat_leader`) |
+| `bet_type` | text | `outcome` \| `exact_score` \| `first_scorer` \| `anytime_scorer` \| `carded` \| `score_2plus` \| `anytime_assist` \| `over_under` \| `clean_sheet` (the last four added in migration `013`; `008` dropped the never-implemented `stat_leader`) |
 | `selection` | jsonb | shape depends on type (see below) |
 | `stake_coins` | int | the **match** stake in Coins, recorded once on the `outcome` bet (0 on the other picks). Validated against `config.stake.tiers` + `cap_coins` at submission |
 | `stake_mult` | numeric | the staked tier's Glory multiplier: 1.0 / 1.25 / 1.5 / 2.0. Written to **every** pick on the match so settlement amplifies each winning pick |
@@ -188,7 +189,9 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 `selection` jsonb examples:
 - outcome: `{ "result": "home" }`
 - exact_score: `{ "home": 2, "away": 1 }`
-- first_scorer / anytime / carded: `{ "footballer_id": "..." }`
+- first_scorer / anytime_scorer / carded / anytime_assist / score_2plus: `{ "footballer_id": "..." }`
+- over_under: `{ "line": 2.5, "direction": "over" }`
+- clean_sheet: `{ "team": "home" }`
 
 > **One stake per match, spent either way, settle-time (not held upfront).** A single
 > stake rides the whole match slip, not individual bets — `stake_coins` records it on

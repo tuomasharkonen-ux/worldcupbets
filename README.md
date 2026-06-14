@@ -1,6 +1,6 @@
 # World Cup Bets
 
-A private betting league for the 2026 World Cup, for you and a circle of friends. Predict match outcomes, exact scores, and player props (first/anytime goalscorer, who gets carded), lock at kickoff, and watch Points settle automatically after full time. No real money — just bragging rights between friends.
+A private betting league for the 2026 World Cup, for you and a circle of friends. Predict match outcomes, exact scores, and an optional bonus bet (first/anytime goalscorer, anytime assist, to score 2+, who gets carded, over/under total goals, or a clean sheet), lock at kickoff, and watch Points settle automatically after full time. No real money — just bragging rights between friends.
 
 **Live:** <https://worldcupbets.vercel.app>
 
@@ -25,8 +25,8 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 
 1. **Join** — enter the shared `LEAGUE_PASSCODE`, a display name, and a 4–6 digit PIN → claim a manager slot → signed cookie keeps you logged in (~400 days). A new name signs you up and sets your PIN; a returning name requires that PIN, so nobody can log in as you just by knowing your name. League size is capped by `config.max_managers` (default 20). Edit your name, avatar, or PIN any time on the **/profile** page.
 2. **Pick your favorites** — on first login, lock in a favorite **team** (a title bet scored on an odds-weighted advancement ladder — backing a longshot pays more at every stage it survives) and a favorite **player** (Points for every goal, a small penalty if booked). Both are fixed for the whole tournament; the picker shows the live Point rewards per pick. See `docs/GAME_DESIGN.md` §10.
-3. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and/or an Exact Score bet. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat. The player-prop picker doubles as a form guide: each squad member shows matches played, goals, and cards at this World Cup plus a **SUSP** flag for players banned from this match — computed from our own settled data, so nobody has to research obscure squads before betting.
-4. **Banter** — once your own slip is in, the all-set screen reveals a read-only **everyone's bets** digest for the day (scores, outcomes, stakes, player props) and, below it, a slate-scoped **comments feed**: text, GIFs (Giphy search), and a fixed palette of emoji reactions on comments. Another manager's bets only become visible for a match once you've bet on it yourself (or it has kicked off), so nobody can copy picks. Both stick around through the settling state and reset with the next slate.
+3. **Bet** — on any upcoming match, place an Outcome (home/draw/away) and Exact Score, plus an optional **bonus bet**. Bets lock at kickoff, checked server-side in UTC so the client clock can't cheat. The bonus-bet picker doubles as a form guide: each squad member shows matches played, goals, and cards at this World Cup plus a **SUSP** flag for players banned from this match — computed from our own settled data, so nobody has to research obscure squads before betting.
+4. **Banter** — once your own slip is in, the all-set screen reveals a read-only **everyone's bets** digest for the day (scores, outcomes, stakes, bonus bets) and, below it, a slate-scoped **comments feed**: text, GIFs (Giphy search), and a fixed palette of emoji reactions on comments. Another manager's bets only become visible for a match once you've bet on it yourself (or it has kicked off), so nobody can copy picks. Both stick around through the settling state and reset with the next slate.
 5. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Points movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
 6. **Leaderboard** — managers ranked by Points.
 7. **Share** — once your slate is in, the all-set screen offers a **Share my bets** button that copies a compact, emoji-flag digest of your picks to the clipboard (Wordle-style, ready to paste into WhatsApp); the morning recap offers **Share my results** — a spoiler-free 🟩/⬛/⬜ grid with your points and leaderboard move. Both end in a link back to the game.
@@ -55,7 +55,7 @@ src/
   settlement/             pure, unit-tested engine + day-close + favorites (team ladder + player) + types + fixtures
   lib/                    supabase client, session, cron auth, slate math, share-text builder, country→flag, cn() class helper
   types/                  hand-written DB types mirroring the schema
-supabase/migrations/      001_initial_schema.sql, 002_phase2_props.sql  (source of truth for the schema)
+supabase/migrations/      001_initial_schema.sql … 013_bonus_bets.sql  (source of truth for the schema)
 docs/                     ARCHITECTURE, DATA_MODEL, GAME_DESIGN, BUILD_PLAN, DESIGN_SYSTEM
 ```
 
@@ -71,7 +71,7 @@ npm run lint                 # eslint + tsc --noEmit
 
 ### Preview gallery (`/admin`)
 
-A hidden, unlinked harness at [`/admin`](http://localhost:3000/admin) for eyeballing and testing every view on fabricated data — no session, no DB, instant. A side-nav switches between: the Today slate in all states (betting, all-set and settling — both including the social layer: everyone's bets, reactions, banter feed —, morning recap, next-up on a rest day, no-fixtures-yet), the match bet slip (fully interactive — outcome/score/props/stakes; Save is a no-op) and a finished/settled match, the full + empty schedule, the leaderboard, the join screen (+ error), and a live **design-system** page (tokens, buttons, badges, cards, inputs, flags, stake chips, dialog, motion). Previews reuse the real components; mock data lives in `src/app/admin/mock.ts`.
+A hidden, unlinked harness at [`/admin`](http://localhost:3000/admin) for eyeballing and testing every view on fabricated data — no session, no DB, instant. A side-nav switches between: the Today slate in all states (betting, all-set and settling — both including the social layer: everyone's bets, reactions, banter feed —, morning recap, next-up on a rest day, no-fixtures-yet), the match bet slip (fully interactive — outcome/score/bonus bet/stakes; Save is a no-op) and a finished/settled match, the full + empty schedule, the leaderboard, the join screen (+ error), and a live **design-system** page (tokens, buttons, badges, cards, inputs, flags, stake chips, dialog, motion). Previews reuse the real components; mock data lives in `src/app/admin/mock.ts`.
 
 ### Environment variables
 

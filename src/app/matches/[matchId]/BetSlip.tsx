@@ -5,13 +5,14 @@ import { useFormStatus } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, ArrowRight, CheckCircle2, Loader2, Lock, Save, Sparkles, Zap } from 'lucide-react';
 import { submitBet, type BetSlipState } from './actions';
-import { PropSlot, type PropType, type SlipSquads } from './PropSlot';
+import { BonusSlot, type BonusSlotValue, type SlipSquads } from './BonusSlot';
 import { StakeSelector, type StakeTier } from './StakeSelector';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Flag } from '@/components/ui/flag';
+import type { BonusBetType } from '@/lib/bonus-bets';
 
-export type { SlipSquads, SlipPlayer } from './PropSlot';
+export type { SlipSquads, SlipPlayer } from './BonusSlot';
 
 function SubmitButton({
   disabled,
@@ -82,12 +83,12 @@ interface Props {
     stageMult: number;
     outcome: number;
     exactBonus: number;
-    props: Record<PropType, number>;
+    props: Record<BonusBetType, number>;
   };
   existing: {
     outcome?: 'home' | 'draw' | 'away';
     exactScore?: { home: number; away: number };
-    propSlot?: { type: PropType; playerId: string } | null;
+    bonusSlot?: BonusSlotValue | null;
     // Coins staked on the whole match slip, prefilled when editing.
     stake?: number;
   };
@@ -142,11 +143,11 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
   const [awayScore, setAwayScore] = useState<string>(existing.exactScore?.away?.toString() ?? '');
 
   // Mirrored from the child widgets so the max-winnings counter can react live.
-  const [propType, setPropType] = useState<PropType | null>(existing.propSlot?.type ?? null);
+  const [bonusType, setBonusType] = useState<BonusBetType | null>(existing.bonusSlot?.type ?? null);
   const [stakeMult, setStakeMult] = useState<number>(
     stake.tiers.find(t => t.coins === (existing.stake ?? 0))?.mult ?? 1,
   );
-  const handlePropChange = useCallback((v: { type: PropType; playerId: string } | null) => setPropType(v?.type ?? null), []);
+  const handleBonusChange = useCallback((v: BonusSlotValue | null) => setBonusType(v?.type ?? null), []);
   const handleStakeChange = useCallback((_coins: number, mult: number) => setStakeMult(mult), []);
 
   const coreComplete = outcome !== '' && homeScore !== '' && awayScore !== '';
@@ -175,8 +176,8 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
   const maxPoints =
     (outcome !== '' ? capPts(scoring.outcome) : 0) +
     (hasExact ? capPts(scoring.outcome + scoring.exactBonus) : 0) +
-    (propType ? capPts(scoring.props[propType]) : 0);
-  const hasPicks = outcome !== '' || hasExact || propType != null;
+    (bonusType ? capPts(scoring.props[bonusType]) : 0);
+  const hasPicks = outcome !== '' || hasExact || bonusType != null;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -287,28 +288,29 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
         )}
       </fieldset>
 
-      {/* Player prop — optional, one slot */}
+      {/* Bonus bet — optional, one slot */}
       <fieldset className="space-y-2.5">
         <legend className="flex w-full items-center justify-between text-sm font-medium text-muted">
           <span>
-            Player bet <span className="font-normal text-subtle">(optional)</span>
+            Bonus bet <span className="font-normal text-subtle">(optional)</span>
           </span>
-          {propType && (
+          {bonusType && (
             <span className="font-mono text-xs font-semibold text-points">
-              {scoring.props[propType]} pts
+              {scoring.props[bonusType]} pts
             </span>
           )}
         </legend>
         {squads ? (
-          <PropSlot
+          <BonusSlot
             squads={squads}
-            defaultValue={existing.propSlot ?? null}
+            defaultValue={existing.bonusSlot ?? null}
             locked={locked}
-            onChange={handlePropChange}
+            points={scoring.props}
+            onChange={handleBonusChange}
           />
         ) : (
           <p className="rounded-2xl border border-border bg-surface-2 px-4 py-3 text-xs text-subtle">
-            Player bets open once squads are confirmed.
+            Bonus bets open once squads are confirmed.
           </p>
         )}
       </fieldset>
