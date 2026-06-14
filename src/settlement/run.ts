@@ -166,8 +166,7 @@ async function settleFinishedMatches(): Promise<{ settled: number; slatesClosed:
   const justSettled: Match[] = [];
   for (const match of matches as Match[]) {
     try {
-      await settleMatch(match, league);
-      justSettled.push(match);
+      if (await settleMatch(match, league)) justSettled.push(match);
     } catch (err) {
       console.error(`[settle] match ${match.id} failed:`, err);
       // Continue to next match — one failure doesn't block others
@@ -357,14 +356,17 @@ async function closeCompletedSlate(slateKey: string, league: League, rollover: n
   return true;
 }
 
-async function settleMatch(match: Match, league: League): Promise<void> {
+// Settles one match. Returns true when it actually settled, false when it was
+// deferred (e.g. the goal feed hasn't landed yet) or already settled by a concurrent
+// run — so the caller only runs day-close for slates it genuinely just completed.
+async function settleMatch(match: Match, league: League): Promise<boolean> {
   // Re-check settled_at to guard against concurrent runs
   const { data: fresh } = await db
     .from('matches')
     .select('settled_at')
     .eq('id', match.id)
     .single();
-  if (fresh?.settled_at) return; // already settled by a concurrent invocation
+  if (fresh?.settled_at) return false; // already settled by a concurrent invocation
 
   // Load open bets
   const { data: bets, error: betsErr } = await db
@@ -417,6 +419,29 @@ async function settleMatch(match: Match, league: League): Promise<void> {
     .select('footballer_id')
     .eq('match_id', match.id);
   const appearances = (appRows ?? []).map(a => a.footballer_id as string);
+
+  // Defer if the goal feed hasn't landed. football-data's free tier can report the
+  // final score before the scorers, leaving goals on the board but zero goal events —
+  // settling now would void deserved scorer props (and silently skip favorite-player
+  // goal bonuses). Hold off while we're inside a grace window so a later run (the cron
+  // or the on-read nudge) re-ingests and pays out the win once the scorers arrive. Past
+  // the window we settle anyway and the engine voids any still-missing scorer props, so
+  // a permanently-incomplete feed can never block the slate's recap forever.
+  const totalGoals = (match.home_score ?? 0) + (match.away_score ?? 0);
+  const goalFeedLanded = (events ?? []).some(
+    e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal',
+  );
+  const needsScorers =
+    pendingBets.some(b => b.bet_type === 'first_scorer' || b.bet_type === 'anytime_scorer') ||
+    favPlayers.length > 0;
+  const SCORER_GRACE_MS = 8 * 60 * 60 * 1000; // ~kickoff + 8h: well past full time
+  const withinGrace = Date.now() - new Date(match.kickoff_at).getTime() < SCORER_GRACE_MS;
+  if (needsScorers && totalGoals > 0 && !goalFeedLanded && withinGrace) {
+    console.log(
+      `[settle] match ${match.id}: ${match.home_score}-${match.away_score} but football-data has no scorers yet — deferring`,
+    );
+    return false; // not settled; a later run retries once the scorer feed catches up
+  }
 
   // Run the pure settlement engine
   const result = settle({
@@ -475,6 +500,8 @@ async function settleMatch(match: Match, league: League): Promise<void> {
     .from('matches')
     .update({ settled_at: new Date().toISOString() })
     .eq('id', match.id);
+
+  return true;
 }
 
 // Pull goals/cards/lineups from football-data.org and (re)write match_events +

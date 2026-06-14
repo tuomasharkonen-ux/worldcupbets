@@ -359,6 +359,42 @@ describe('carded prop', () => {
   });
 });
 
+describe('missing scorer feed (score present, no goal events)', () => {
+  // The fixture match is 2–1: three goals on the board. If football-data reports the
+  // score but no scorers, settling scorer props as "lost" would rob correct picks.
+  test('anytime-scorer pick is voided, not lost, when no goals were ingested', () => {
+    const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('void');
+    expect(result.betUpdates[0].pointsAwarded).toBe(0);
+    expect(result.deltas).toHaveLength(0); // void earns nothing (unstaked)
+  });
+
+  test('first-scorer pick is voided, not lost, when no goals were ingested', () => {
+    const bet = makeBet({ bet_type: 'first_scorer', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('void');
+  });
+
+  test('a goalless match still settles scorer picks as lost (nothing to miss)', () => {
+    const goalless: Match = { ...match, home_score: 0, away_score: 0 };
+    const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-1' } });
+    const result = settle({ match: goalless, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
+
+  test('once any goal event is present the feed is trusted — unmatched pick loses', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
+    const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-2' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-2'] });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
+});
+
 describe('prop void logic (non-appearance)', () => {
   test('pick did not appear → void', () => {
     const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];

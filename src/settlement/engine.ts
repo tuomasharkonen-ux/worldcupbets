@@ -6,6 +6,7 @@ import {
   ExactScoreSelection,
   FootballerSelection,
   LeagueConfig,
+  Match,
   MatchEvent,
   OutcomeSelection,
 } from '@/types/db';
@@ -96,9 +97,9 @@ function settleBet(bet: Bet, input: SettleInput): BetUpdate {
     case 'exact_score':
       return settleExactScore(bet, home, away, mult, config);
     case 'first_scorer':
-      return settleScorerProp(bet, events, mult, config, appearances, 'first');
+      return settleScorerProp(bet, match, events, mult, config, appearances, 'first');
     case 'anytime_scorer':
-      return settleScorerProp(bet, events, mult, config, appearances, 'anytime');
+      return settleScorerProp(bet, match, events, mult, config, appearances, 'anytime');
     case 'carded':
       return settleCarded(bet, events, mult, config, appearances);
     default:
@@ -174,6 +175,19 @@ function isScoringEvent(e: MatchEvent): boolean {
   return (e.type === 'goal' || e.type === 'penalty') && !e.is_own_goal;
 }
 
+// Any goal-type event (incl. own goals) — used to tell "the goal feed is here" from
+// "the goal feed hasn't landed". football-data's free tier can publish the final
+// score before (or without) the scorers, leaving goals on the board but zero goal
+// events. Settling first/anytime-scorer props off that empty list would wrongly mark
+// correct picks as *lost*, so we VOID those props instead (refund, no Glory). We only
+// guard the all-or-nothing gap the feed actually produces: a *partial* scorer list is
+// indistinguishable from a legitimate loss, so it settles normally.
+function scorerFeedMissing(match: Match, events: MatchEvent[]): boolean {
+  const totalGoals = (match.home_score ?? 0) + (match.away_score ?? 0);
+  if (totalGoals === 0) return false; // a goalless match can't be missing a scorer
+  return !events.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
+}
+
 // The scorer of the match's first (earliest-minute) non-own goal, or null if the
 // only goals were own goals / there were no goals.
 function firstScorerId(events: MatchEvent[]): string | null {
@@ -207,6 +221,7 @@ function propResult(
 
 function settleScorerProp(
   bet: Bet,
+  match: Match,
   events: MatchEvent[],
   mult: number,
   config: LeagueConfig,
@@ -214,6 +229,13 @@ function settleScorerProp(
   kind: 'first' | 'anytime',
 ): BetUpdate {
   const pickId = (bet.selection as FootballerSelection).footballer_id;
+
+  // No scorers from the feed despite goals on the board → we can't tell who scored.
+  // Void rather than wrongly mark a correct pick as lost (the settle cron defers these
+  // within a grace window first, so a slow feed still pays out the win on retry).
+  if (scorerFeedMissing(match, events)) {
+    return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
+  }
 
   const won =
     kind === 'first'
