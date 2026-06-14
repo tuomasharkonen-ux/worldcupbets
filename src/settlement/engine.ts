@@ -85,7 +85,9 @@ export function settle(input: SettleInput): SettleResult {
   return { deltas, betUpdates };
 }
 
-function settleBet(bet: Bet, input: SettleInput): BetUpdate {
+// Exported so the props-backfill can re-evaluate a single already-settled bet
+// without re-running the whole match (which would also re-charge stakes / day-close).
+export function settleBet(bet: Bet, input: SettleInput): BetUpdate {
   const { match, config, events, appearances } = input;
   const home = match.home_score!;
   const away = match.away_score!;

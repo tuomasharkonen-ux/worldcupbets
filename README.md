@@ -103,6 +103,12 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/settle
   ```
+- **Repair goalscorer/card props** settled before football-data published the scorers
+  (re-ingests events for already-settled matches and re-settles only their prop bets;
+  add `?dry=1` to preview without writing):
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/settle-backfill?dry=1"
+  ```
 - **Database access** — `psql "$SUPABASE_CONNECTION_STRING"` for direct SQL.
 - **Test the loop without real matches** — `GET /api/dev/seed-match` creates a synthetic match (kickoff +3 min), `POST /api/dev/finish-match` marks it finished with a score, then run `settle`. Both require the `CRON_SECRET` bearer header.
 

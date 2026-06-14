@@ -1,7 +1,7 @@
 import { after } from 'next/server';
 import { db } from '@/lib/supabase';
 import { getCompetitionMatches, getMatchDetail, mapFdStatus } from '@/lib/football-data';
-import { settle } from '@/settlement/engine';
+import { settle, settleBet } from '@/settlement/engine';
 import { closeSlate } from '@/settlement/dayclose';
 import {
   favoritePlayerDeltas,
@@ -504,11 +504,155 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
   return true;
 }
 
+export interface BackfillResult {
+  dryRun: boolean;
+  matchesScanned: number;
+  matchesWithScorers: number;
+  betsReevaluated: number;
+  betsChanged: number;
+  newlyWon: number;
+  changes: Array<{
+    betId: string;
+    managerId: string;
+    betType: string;
+    from: string;
+    to: string;
+    points: number;
+  }>;
+}
+
+// One-off repair for prop bets that were settled before football-data published the
+// scorers (the free-tier "score before scorers" gap that auto-lost every goalscorer
+// pick). For each already-settled match carrying prop bets, re-ingest events from the
+// feed, then re-evaluate ONLY its prop bets with the same pure engine. Outcome/exact
+// bets and day-close are untouched — they only need the score, which was always
+// available — so this never re-charges stakes or re-grants slate bonuses.
+//
+// Per-bet ledger reconciliation (delete the bet's prior win/coin rows, re-insert the
+// new result) makes it safe to run repeatedly and in any direction (lost→won,
+// won→void, …). Pass dryRun to preview the changes without writing.
+export async function backfillSettledProps(dryRun = false): Promise<BackfillResult> {
+  const { data: league, error: leagueErr } = await db
+    .from('league')
+    .select('*')
+    .eq('id', 1)
+    .single<League>();
+  if (leagueErr || !league) throw new Error('Could not load league config');
+
+  const result: BackfillResult = {
+    dryRun,
+    matchesScanned: 0,
+    matchesWithScorers: 0,
+    betsReevaluated: 0,
+    betsChanged: 0,
+    newlyWon: 0,
+    changes: [],
+  };
+
+  // Settled matches that carry at least one prop bet.
+  const { data: propRows } = await db.from('bets').select('match_id').in('bet_type', PROP_BET_TYPES);
+  const matchIds = [...new Set((propRows ?? []).map(b => b.match_id as string))];
+  if (matchIds.length === 0) return result;
+
+  const { data: matchRows } = await db
+    .from('matches')
+    .select('*')
+    .in('id', matchIds)
+    .not('settled_at', 'is', null);
+  const matches = (matchRows ?? []) as Match[];
+  result.matchesScanned = matches.length;
+
+  const affectedManagers = new Set<string>();
+
+  for (const match of matches) {
+    // Re-pull the feed. ingestMatchData leaves existing rows intact if the feed still
+    // has no goals for a scoring match, so this never erases data we already have.
+    if (!dryRun) {
+      try {
+        await ingestMatchData(match);
+      } catch (err) {
+        console.error(`[backfill] re-ingest for match ${match.id} failed (skipping):`, err);
+        continue;
+      }
+    }
+
+    const { data: events } = await db.from('match_events').select('*').eq('match_id', match.id);
+    const evs = (events ?? []) as MatchEvent[];
+    if (evs.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal')) {
+      result.matchesWithScorers++;
+    }
+
+    const { data: appRows } = await db
+      .from('match_appearances')
+      .select('footballer_id')
+      .eq('match_id', match.id);
+    const appearances = (appRows ?? []).map(a => a.footballer_id as string);
+
+    const { data: bets } = await db
+      .from('bets')
+      .select('*')
+      .eq('match_id', match.id)
+      .in('bet_type', PROP_BET_TYPES);
+
+    for (const bet of (bets ?? []) as Bet[]) {
+      const update = settleBet(bet, {
+        match,
+        bets: [],
+        config: league.config,
+        events: evs,
+        appearances: appearances.length > 0 ? appearances : undefined,
+      });
+      result.betsReevaluated++;
+
+      const changed =
+        update.status !== bet.status || update.pointsAwarded !== (bet.glory_awarded ?? 0);
+      if (!changed) continue;
+
+      result.betsChanged++;
+      if (update.status === 'won') result.newlyWon++;
+      result.changes.push({
+        betId: bet.id,
+        managerId: bet.manager_id,
+        betType: bet.bet_type,
+        from: bet.status,
+        to: update.status,
+        points: update.pointsAwarded,
+      });
+      if (dryRun) continue;
+
+      // Reconcile this bet's ledger rows (bet-scoped only; stake_spend is match-scoped
+      // and stays put), then write the new bet status.
+      await db.from('ledger').delete().eq('ref_type', 'bet').eq('ref_id', bet.id);
+      const ledgerRows: { manager_id: string; currency: string; amount: number; reason: string; ref_type: string; ref_id: string }[] = [];
+      if (update.status === 'won') {
+        if (update.pointsAwarded > 0)
+          ledgerRows.push({ manager_id: bet.manager_id, currency: 'glory', amount: update.pointsAwarded, reason: 'bet_win', ref_type: 'bet', ref_id: bet.id });
+        if (update.coinsAwarded > 0)
+          ledgerRows.push({ manager_id: bet.manager_id, currency: 'coins', amount: update.coinsAwarded, reason: 'bet_coin', ref_type: 'bet', ref_id: bet.id });
+      }
+      if (ledgerRows.length > 0) {
+        const { error } = await db
+          .from('ledger')
+          .upsert(ledgerRows, { onConflict: 'reason,ref_type,ref_id,manager_id', ignoreDuplicates: true });
+        if (error) throw error;
+      }
+      await db
+        .from('bets')
+        .update({ status: update.status, glory_awarded: update.pointsAwarded })
+        .eq('id', bet.id);
+      affectedManagers.add(bet.manager_id);
+    }
+  }
+
+  if (!dryRun && affectedManagers.size > 0) await recomputeBalances([...affectedManagers]);
+  return result;
+}
+
 // Pull goals/cards/lineups from football-data.org and (re)write match_events +
 // match_appearances for this match. Idempotent: clears prior rows first, so a
 // retried settle produces the same result. Throws on fetch failure — the caller
 // treats that as "not ready yet" and leaves the match unsettled.
-async function ingestMatchData(match: Match): Promise<void> {
+export async function ingestMatchData(match: Match): Promise<void> {
   // Map football-data player ids → our footballer UUIDs (both teams' squads).
   const { data: players } = await db
     .from('footballers')
@@ -559,6 +703,17 @@ async function ingestMatchData(match: Match): Promise<void> {
       const id = byFdId.get(s.playerIn.id);
       if (id) appeared.add(id);
     }
+  }
+
+  // Guard against clobbering: if the feed carries no goals for a match that did
+  // score, treat it as "data not ready" and leave any existing rows intact rather
+  // than wiping them to empty. (This is the free-tier "score before scorers" gap —
+  // see settleMatch's defer logic.) Without this, a re-ingest while the feed is
+  // still empty would erase good scorer data we already have.
+  const fetchedGoals = eventRows.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
+  const scoreboardGoals = (match.home_score ?? 0) + (match.away_score ?? 0);
+  if (!fetchedGoals && scoreboardGoals > 0) {
+    return; // nothing trustworthy to write; keep whatever we already have
   }
 
   // Idempotent re-ingest: clear then insert.
