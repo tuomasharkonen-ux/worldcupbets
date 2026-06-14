@@ -565,28 +565,34 @@ export async function backfillSettledProps(dryRun = false): Promise<BackfillResu
   const affectedManagers = new Set<string>();
 
   for (const match of matches) {
-    // Re-pull the feed. ingestMatchData leaves existing rows intact if the feed still
-    // has no goals for a scoring match, so this never erases data we already have.
-    if (!dryRun) {
-      try {
-        await ingestMatchData(match);
-      } catch (err) {
-        console.error(`[backfill] re-ingest for match ${match.id} failed (skipping):`, err);
-        continue;
+    // Always read the live feed (read-only) so even a dry run previews what a real
+    // run would settle. If the feed now carries scorers, evaluate against those and
+    // persist them on a real run; if it still has none, fall back to whatever events
+    // we already have (the ingest guard would keep them) so we never wipe good data.
+    let evs: MatchEvent[];
+    let appearances: string[];
+    try {
+      const fetched = await fetchMatchEvents(match);
+      if (fetched.hasGoals) {
+        evs = fetched.eventRows.map((r, i) => ({ id: `preview-${i}`, ...r })) as MatchEvent[];
+        appearances = fetched.appeared;
+        if (!dryRun) await ingestMatchData(match); // persist the freshly-fetched events
+      } else {
+        const { data: events } = await db.from('match_events').select('*').eq('match_id', match.id);
+        evs = (events ?? []) as MatchEvent[];
+        const { data: appRows } = await db
+          .from('match_appearances')
+          .select('footballer_id')
+          .eq('match_id', match.id);
+        appearances = (appRows ?? []).map(a => a.footballer_id as string);
       }
+    } catch (err) {
+      console.error(`[backfill] feed fetch for match ${match.id} failed (skipping):`, err);
+      continue;
     }
-
-    const { data: events } = await db.from('match_events').select('*').eq('match_id', match.id);
-    const evs = (events ?? []) as MatchEvent[];
     if (evs.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal')) {
       result.matchesWithScorers++;
     }
-
-    const { data: appRows } = await db
-      .from('match_appearances')
-      .select('footballer_id')
-      .eq('match_id', match.id);
-    const appearances = (appRows ?? []).map(a => a.footballer_id as string);
 
     const { data: bets } = await db
       .from('bets')
@@ -652,7 +658,22 @@ export async function backfillSettledProps(dryRun = false): Promise<BackfillResu
 // match_appearances for this match. Idempotent: clears prior rows first, so a
 // retried settle produces the same result. Throws on fetch failure — the caller
 // treats that as "not ready yet" and leaves the match unsettled.
-export async function ingestMatchData(match: Match): Promise<void> {
+interface FetchedMatchData {
+  eventRows: Array<{
+    match_id: string;
+    footballer_id: string | null;
+    type: EventType;
+    minute: number | null;
+    is_own_goal: boolean;
+  }>;
+  appeared: string[];
+  hasGoals: boolean;
+}
+
+// Read-only: fetch + parse goals/cards/lineups from football-data, mapped to our
+// footballer UUIDs. No DB writes — so the props-backfill can use it to *preview* what
+// a real run would settle. Throws on fetch failure.
+export async function fetchMatchEvents(match: Match): Promise<FetchedMatchData> {
   // Map football-data player ids → our footballer UUIDs (both teams' squads).
   const { data: players } = await db
     .from('footballers')
@@ -668,13 +689,7 @@ export async function ingestMatchData(match: Match): Promise<void> {
 
   // Goals → match_events. Own goals keep the scorer but are flagged so the
   // engine excludes them from goalscorer props.
-  const eventRows: Array<{
-    match_id: string;
-    footballer_id: string | null;
-    type: EventType;
-    minute: number | null;
-    is_own_goal: boolean;
-  }> = [];
+  const eventRows: FetchedMatchData['eventRows'] = [];
 
   for (const g of detail.goals ?? []) {
     const fid = g.scorer?.id != null ? byFdId.get(g.scorer.id) ?? null : null;
@@ -705,14 +720,23 @@ export async function ingestMatchData(match: Match): Promise<void> {
     }
   }
 
+  const hasGoals = eventRows.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
+  return { eventRows, appeared: [...appeared], hasGoals };
+}
+
+// Fetch from football-data and (re)write match_events + match_appearances for this
+// match. Idempotent: clears prior rows first, so a retried settle produces the same
+// result. Throws on fetch failure — the caller treats that as "not ready yet".
+export async function ingestMatchData(match: Match): Promise<void> {
+  const { eventRows, appeared, hasGoals } = await fetchMatchEvents(match);
+
   // Guard against clobbering: if the feed carries no goals for a match that did
   // score, treat it as "data not ready" and leave any existing rows intact rather
   // than wiping them to empty. (This is the free-tier "score before scorers" gap —
   // see settleMatch's defer logic.) Without this, a re-ingest while the feed is
   // still empty would erase good scorer data we already have.
-  const fetchedGoals = eventRows.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
   const scoreboardGoals = (match.home_score ?? 0) + (match.away_score ?? 0);
-  if (!fetchedGoals && scoreboardGoals > 0) {
+  if (!hasGoals && scoreboardGoals > 0) {
     return; // nothing trustworthy to write; keep whatever we already have
   }
 
@@ -724,8 +748,8 @@ export async function ingestMatchData(match: Match): Promise<void> {
   }
 
   await db.from('match_appearances').delete().eq('match_id', match.id);
-  if (appeared.size > 0) {
-    const rows = [...appeared].map(footballer_id => ({ match_id: match.id, footballer_id }));
+  if (appeared.length > 0) {
+    const rows = appeared.map(footballer_id => ({ match_id: match.id, footballer_id }));
     const { error } = await db.from('match_appearances').insert(rows);
     if (error) throw error;
   }
