@@ -357,6 +357,21 @@ describe('carded prop', () => {
     expect(result.betUpdates[0].status).toBe('won');
     expect(result.betUpdates[0].pointsAwarded).toBe(20); // 10 * 2.0
   });
+
+  test('no booking/lineup feed at all → void, not lost', () => {
+    const bet = makeBet({ bet_type: 'carded', selection: { footballer_id: 'plr-3' } });
+    const result = settle({ match, bets: [bet], events: noEvents, config: propConfig });
+
+    expect(result.betUpdates[0].status).toBe('void');
+  });
+
+  test('lineup present but pick not booked → lost (demonstrably not carded)', () => {
+    const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1', type: 'yellow', minute: 30 })];
+    const bet = makeBet({ bet_type: 'carded', selection: { footballer_id: 'plr-3' } });
+    const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-3'] });
+
+    expect(result.betUpdates[0].status).toBe('lost');
+  });
 });
 
 describe('missing scorer feed (score present, no goal events)', () => {

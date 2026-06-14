@@ -263,6 +263,15 @@ function settleCarded(
     e => (e.type === 'yellow' || e.type === 'red') && e.footballer_id === pickId,
   );
 
+  // No match-detail feed at all (no events AND no lineups) → we can't tell whether
+  // the pick was booked, so void rather than falsely mark it lost. Same free-tier gap
+  // as scorerFeedMissing, but cards have no "should there have been one" signal, so we
+  // can only act on the all-or-nothing absence. A real match with lineups but no card
+  // for the pick still settles as lost (the player demonstrably wasn't booked).
+  if (!won && events.length === 0 && (appearances == null || appearances.length === 0)) {
+    return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
+  }
+
   const basePoints = config.glory.carded ?? 0;
   const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
 
