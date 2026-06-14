@@ -108,3 +108,29 @@ export function getWorldCupTeams(): Promise<AfTeam[]> {
 export function getTeamSquad(afTeamId: number): Promise<{ team: { id: number }; players: AfSquadPlayer[] }[]> {
   return afFetch<{ team: { id: number }; players: AfSquadPlayer[] }>(`/players/squads?team=${afTeamId}`);
 }
+
+// Leagues matching a name — used to resolve/verify the World Cup competition id.
+export interface AfLeague {
+  league: { id: number; name: string; type: string };
+  country: { name: string | null };
+  seasons: { year: number }[];
+}
+export function searchLeagues(name: string): Promise<AfLeague[]> {
+  return afFetch<AfLeague>(`/leagues?search=${encodeURIComponent(name)}`);
+}
+
+// Account/plan/quota — /status wraps a single object, not the usual array.
+export interface AfStatus {
+  account?: { firstname?: string; email?: string };
+  subscription?: { plan?: string; active?: boolean; end?: string };
+  requests?: { current?: number; limit_day?: number };
+}
+export async function getAccountStatus(): Promise<AfStatus> {
+  const res = await fetch(`${AF_BASE}/status`, {
+    headers: { 'x-apisports-key': token() },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw new Error(`api-football /status failed: ${res.status} ${res.statusText}`);
+  const body = (await res.json()) as { response?: AfStatus };
+  return body.response ?? {};
+}
