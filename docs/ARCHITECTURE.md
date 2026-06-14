@@ -52,8 +52,13 @@ Each cron hits a protected API route (guarded by a `CRON_SECRET` bearer header s
 | --- | --- | --- | --- |
 | `fixtures-sync` | Daily, 08:00 Helsinki (05:00 UTC) | Vercel Cron (`vercel.json`) | Pull/refresh the fixture list, kickoff times, stages, and (later) squad rosters from football-data.org. Upsert into `matches`, `teams`, `footballers`. |
 | `settle` | Hourly, 06:00–10:00 Helsinki | External — [cron-job.org](https://cron-job.org) | First **sync status/score** for every match that has kicked off but isn't finished yet (one windowed football-data call — so settlement never waits for the daily `fixtures-sync`), then find matches that are finished but `settled_at IS NULL`, run the settlement engine, write ledger entries, recompute cached balances, set `settled_at`. |
+| `settle` (on-read nudge) | On `/today` load, when work is pending | `nudgeSettlement()` in the page | The morning window can close before a late-morning kickoff is *reported* finished — leaving it stuck `live` (and its slate's recap blocked) until the next day. Whenever a manager opens `/today` and any match has kicked off but isn't settled, the page schedules the **same** settlement pass in the background (`after()`, throttled in-memory), so results settle — and the recap appears for everyone — the same day instead of waiting for tomorrow's sweep. |
+
+The settlement pass itself lives in `src/settlement/run.ts` (`runSettlement`), shared verbatim by the cron route and the nudge so they can never drift. It is fully idempotent, so the two triggers overlapping is harmless.
 
 > **Why two cron providers?** The Vercel **Hobby** plan caps cron jobs at *daily cadence* and *two jobs total*. The WC2026 schedule (US venues) gives Finnish viewers two match clusters — evenings (~21:00–01:30) and early mornings (~03:00–07:30). Settling once a day would leave the morning cluster unsettled for nearly 24 h, so `settle` was moved to cron-job.org, which allows arbitrary schedules for free. The hourly morning sweep is safe to overlap with anything thanks to idempotency.
+
+> **Why the on-read nudge too?** The morning window (06–10 Helsinki) is fixed, but a match kicking off ~07:00 finishes ~09:00 and football-data often still reports it `IN_PLAY` past the last cron tick — so it'd stay unsettled, blocking its slate's recap, until the *next* morning. The nudge closes that gap without a third cron provider: settlement runs on demand whenever someone opens the app.
 
 > **Optimization, not required for v1:** make `settle` cheap when nothing's happening by early-returning if no match has finished since the last run. During match windows it does real work; overnight it's a no-op.
 

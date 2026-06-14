@@ -307,9 +307,10 @@ Per-manager scratch state the ledger isn't the right home for, as a `jsonb` colu
 - `last_closed_slate` — slate key (`YYYY-MM-DD`) of the last day-close processed.
   Guards the streak counter against a settlement re-run double-counting.
 - `recap_seen_slate` — latest slate key whose morning recap this manager has dismissed
-  ("Next match day" on the recap). `/today` keeps showing the most recent fully-settled
-  slate's recap until this catches up, so the recap survives the 09:00 rollover. Written
-  by the `markRecapSeen` server action (monotonic — only moves forward).
+  ("Next match day" on the recap). `/today` surfaces the *earliest* slate newer than this
+  one and shows its recap once every match on it is settled — so a newer slate settling
+  first can never bury an older owed recap, and the recap survives the 09:00 rollover.
+  Written by the `markRecapSeen` server action (monotonic — only moves forward).
 
 The Accumulator "declared/used this slate" flag and Vault bookkeeping join this object
 in later slices. Chosen over recomputing from settled bets each morning for simpler

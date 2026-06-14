@@ -17,6 +17,7 @@ import { ShareBetsButton } from './ShareBetsButton';
 import { Social } from './Social';
 import { buildSocialData } from './social-data';
 import { markRecapSeen } from './actions';
+import { nudgeSettlement } from '@/settlement/run';
 import type {
   Bet,
   ExactScoreSelection,
@@ -102,12 +103,21 @@ export default async function TodayPage() {
 
   const now = new Date();
 
+  // Settle on read: if results are in but the morning cron (06–10 Helsinki) hasn't
+  // run since — e.g. a match that finished late in the morning — kick a background
+  // settlement pass so the recap below becomes available the same day, for everyone,
+  // instead of waiting for tomorrow's sweep. Non-blocking (runs after the response)
+  // and throttled, so it never slows the page.
+  nudgeSettlement();
+
   // ─── pending recap ───────────────────────────────────────────────────────────
   // A settled slate's recap stays pending until this manager dismisses it ("Next
-  // match day"), tracked in managers.state.recap_seen_slate. Anchoring on the most
-  // recent fully-settled slate — not on the current slate — means the recap survives
-  // the 09:00 rollover: settlement landing after rollover (as on match day 1) just
-  // shows the recap on the next load instead of never.
+  // match day"), tracked in managers.state.recap_seen_slate. We surface the *earliest*
+  // slate the manager hasn't dismissed yet, and show it only once every match on it is
+  // settled. Anchoring on the earliest unseen slate — not the latest-settled one —
+  // means a newer slate settling first can never silently bury an older owed recap,
+  // and it survives the 09:00 rollover (settlement landing after rollover just shows
+  // the recap on the next load instead of never).
   const { data: managerRow } = await db
     .from('managers')
     .select('state')
@@ -115,31 +125,32 @@ export default async function TodayPage() {
     .maybeSingle();
   const seenSlate = ((managerRow?.state ?? {}) as ManagerState).recap_seen_slate ?? '';
 
-  const { data: lastSettledRows } = await db
+  // First non-void match on or after the seen slate whose slate is newer than it: its
+  // slate is the earliest one the manager still owes a recap for. (Slate keys sort
+  // lexicographically, same as chronologically, since they're YYYY-MM-DD.)
+  const { data: unseenRows } = await db
     .from('matches')
     .select('kickoff_at')
-    .not('settled_at', 'is', null)
     .neq('status', 'void')
-    .order('kickoff_at', { ascending: false })
-    .limit(1);
-  const lastSettledKickoff = lastSettledRows?.[0]?.kickoff_at as string | undefined;
-  if (lastSettledKickoff) {
-    const recapSlateKey = slateKeyOf(lastSettledKickoff, rollover);
-    if (seenSlate < recapSlateKey) {
-      const recapMembers = await fetchSlateMembers(recapSlateKey, rollover);
-      if (recapMembers.length > 0 && recapMembers.every(m => m.settled_at != null)) {
-        const { data: recapBetRows } = await db
-          .from('bets')
-          .select('*')
-          .eq('manager_id', managerId)
-          .in('match_id', recapMembers.map(m => m.id));
-        const recap = await buildRecap(managerId, recapSlateKey, recapMembers, (recapBetRows ?? []) as Bet[]);
-        return (
-          <Shell>
-            <Recap data={recap} doneAction={markRecapSeen.bind(null, recapSlateKey)} />
-          </Shell>
-        );
-      }
+    .gte('kickoff_at', `${seenSlate || '1970-01-01'}T00:00:00Z`)
+    .order('kickoff_at', { ascending: true });
+  const recapSlateKey = (unseenRows ?? [])
+    .map(r => slateKeyOf(r.kickoff_at as string, rollover))
+    .find(k => k > seenSlate);
+  if (recapSlateKey) {
+    const recapMembers = await fetchSlateMembers(recapSlateKey, rollover);
+    if (recapMembers.length > 0 && recapMembers.every(m => m.settled_at != null)) {
+      const { data: recapBetRows } = await db
+        .from('bets')
+        .select('*')
+        .eq('manager_id', managerId)
+        .in('match_id', recapMembers.map(m => m.id));
+      const recap = await buildRecap(managerId, recapSlateKey, recapMembers, (recapBetRows ?? []) as Bet[]);
+      return (
+        <Shell>
+          <Recap data={recap} doneAction={markRecapSeen.bind(null, recapSlateKey)} />
+        </Shell>
+      );
     }
   }
 
