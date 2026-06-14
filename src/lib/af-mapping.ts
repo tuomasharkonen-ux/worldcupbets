@@ -35,6 +35,24 @@ function normalize(name: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+// Split a name into normalized word tokens (diacritics stripped, hyphens split). This
+// is what makes player matching robust to the two big sources of mismatch: name ORDER
+// (AF stores "Son Heung-Min" family-first vs our "Heung-min Son") and accents/hyphens.
+function tokens(name: string): string[] {
+  return name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+}
+
+// Order-invariant key: sorted token set. "Heung-min Son" and "Son Heung-Min" \u2192 same key.
+const tokenKey = (name: string) => tokens(name).sort().join(' ');
+
+// a \u2286 b \u2014 every token of a appears in b (used for the mononym/abbreviation fallback).
+const isSubset = (a: string[], b: string[]) => a.every(t => b.includes(t));
+
 // Known WC team-name differences between our seed and API-Football. Both sides are
 // normalized then mapped to a shared canonical token, so either spelling matches.
 // Extend this from the dry-run's unmatched lists as needed.
@@ -55,7 +73,8 @@ const TEAM_CANON: Record<string, string> = {
   capeverde: 'capeverde',
   congodr: 'drcongo',
   drcongo: 'drcongo',
-  drcongo2: 'drcongo',
+  turkey: 'turkey',
+  turkiye: 'turkey',
 };
 
 function canonTeam(name: string): string {
@@ -200,22 +219,65 @@ export async function syncAfMappings(dryRun = false): Promise<AfMappingResult> {
     }
     result.players.teamsProcessed++;
 
-    // AF squad indexed by normalized full name + by last-name token (for fallback).
-    const afByNorm = new Map<string, { id: number; name: string }>();
-    const afByLast = new Map<string, { id: number; name: string }[]>();
+    // Match our footballers to AF squad players in precision tiers. `used` stops two of
+    // our players claiming the same AF id; we stop a player at the first tier that yields
+    // a *unique* candidate, so a tighter rule always beats a looser one.
+    const used = new Set<number>();
+    const matchOf = new Map<string, { id: number; name: string }>();
+
+    // Tier 1 — order/accent/hyphen-invariant token-set equality (handles the SK reorder).
+    const afByKey = new Map<string, { id: number; name: string }[]>();
     for (const p of squad) {
-      afByNorm.set(normalize(p.name), p);
-      const last = normalize(p.name.split(' ').pop() ?? '');
-      if (last) (afByLast.get(last) ?? afByLast.set(last, []).get(last)!).push(p);
+      const k = tokenKey(p.name);
+      (afByKey.get(k) ?? afByKey.set(k, []).get(k)!).push(p);
+    }
+    for (const f of ourFooters) {
+      const cands = (afByKey.get(tokenKey(f.name)) ?? []).filter(p => !used.has(p.id));
+      if (cands.length === 1) {
+        matchOf.set(f.id, cands[0]);
+        used.add(cands[0].id);
+      }
+    }
+
+    // Tier 2 — first-initial + surname (last token), unique. Splits same-surname pairs
+    // (Theo vs Lucas Hernández) and catches AF's abbreviated squad names ("T. Hernández").
+    for (const f of ourFooters) {
+      if (matchOf.has(f.id)) continue;
+      const ft = tokens(f.name);
+      if (ft.length === 0) continue;
+      const fInit = ft[0][0];
+      const fLast = ft[ft.length - 1];
+      const cands = squad.filter(p => {
+        if (used.has(p.id)) return false;
+        const pt = tokens(p.name);
+        return pt.length > 0 && pt[pt.length - 1] === fLast && pt[0][0] === fInit;
+      });
+      if (cands.length === 1) {
+        matchOf.set(f.id, cands[0]);
+        used.add(cands[0].id);
+      }
+    }
+
+    // Tier 3 — one token set is a subset of the other, unique (mononyms/extra middle
+    // names: AF "Cubarsí" ⊆ our "Pau Cubarsí"). Uniqueness keeps ambiguous cases (two
+    // Danilos, the many Senegalese Sarrs) safely unmatched rather than mis-mapped.
+    for (const f of ourFooters) {
+      if (matchOf.has(f.id)) continue;
+      const ft = tokens(f.name);
+      if (ft.length === 0) continue;
+      const cands = squad.filter(p => {
+        if (used.has(p.id)) return false;
+        const pt = tokens(p.name);
+        return pt.length > 0 && (isSubset(ft, pt) || isSubset(pt, ft));
+      });
+      if (cands.length === 1) {
+        matchOf.set(f.id, cands[0]);
+        used.add(cands[0].id);
+      }
     }
 
     for (const f of ourFooters) {
-      let af = afByNorm.get(normalize(f.name));
-      if (!af) {
-        const last = normalize(f.name.split(' ').pop() ?? '');
-        const cands = afByLast.get(last) ?? [];
-        if (cands.length === 1) af = cands[0]; // unambiguous last-name match within the team
-      }
+      const af = matchOf.get(f.id);
       if (af) {
         result.players.matched++;
         if (!dryRun) await db.from('footballers').update({ af_player_id: af.id }).eq('id', f.id);
