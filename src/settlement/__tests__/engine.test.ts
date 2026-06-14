@@ -52,7 +52,7 @@ describe('outcome bet', () => {
 
 describe('exact score bet', () => {
   // Fixture final score is 2–1 (home by 1).
-  test('correct exact score wins outcome + exact bonus', () => {
+  test('correct exact score wins the exact bonus on its own', () => {
     const bet = makeBet({
       id: 'bet-002',
       bet_type: 'exact_score',
@@ -62,7 +62,9 @@ describe('exact score bet', () => {
 
     const update = result.betUpdates.find(u => u.betId === 'bet-002');
     expect(update?.status).toBe('won');
-    expect(update?.pointsAwarded).toBe(35); // 10 + 25, no goal-difference bonus
+    // The exact bet pays only the +25 bonus; the +10 result is scored by the
+    // separate outcome bet (a nailed score over both bets = 35).
+    expect(update?.pointsAwarded).toBe(25);
   });
 
   test('right outcome + right margin but wrong score → nothing (goal-difference removed)', () => {
@@ -169,7 +171,7 @@ describe('staking (GAME_DESIGN §5) — one stake per match, spent either way', 
     expect(spends[0].refId).toBe(match.id);
     // Both picks won and were amplified ×1.5.
     expect(result.betUpdates.find(u => u.betId === 'b-out')?.pointsAwarded).toBe(15); // 10 * 1.5
-    expect(result.betUpdates.find(u => u.betId === 'b-exact')?.pointsAwarded).toBe(53); // round((10+25) * 1.5)
+    expect(result.betUpdates.find(u => u.betId === 'b-exact')?.pointsAwarded).toBe(38); // round(25 * 1.5)
   });
 
   test('props never hold the match stake — an unstaked void emits nothing', () => {

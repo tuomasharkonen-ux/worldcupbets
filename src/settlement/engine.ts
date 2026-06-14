@@ -153,9 +153,10 @@ function settleOutcome(
   };
 }
 
-// The exact-score bet is all-or-nothing (GAME_DESIGN §3): the exact scoreline scores
-// outcome + the exact bonus; anything else scores nothing. The separate outcome bet
-// independently scores the +10 for a correct result.
+// The exact-score bet is all-or-nothing (GAME_DESIGN §3): nailing the exact scoreline
+// scores the exact bonus on its own; anything else scores nothing. The +10 for a
+// correct result is scored once, by the separate outcome bet — so a nailed score pays
+// outcome (+10) + exact bonus (+25) = 35, not double-counting the result.
 function settleExactScore(
   bet: Bet,
   home: number,
@@ -167,7 +168,7 @@ function settleExactScore(
   const exact = sel.home === home && sel.away === away;
 
   if (exact) {
-    const basePoints = config.glory.outcome_correct + config.glory.exact_score_bonus;
+    const basePoints = config.glory.exact_score_bonus;
     return {
       betId: bet.id,
       status: 'won',

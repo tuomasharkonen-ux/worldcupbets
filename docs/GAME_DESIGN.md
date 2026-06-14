@@ -84,6 +84,8 @@ To spare managers from researching every squad before each slate, the player pic
 
 Exact score is all-or-nothing — there is no goal-difference consolation. Worked example: you predict **2–1 home**. Final is **3–1 home** → outcome ✅ (+10), exact ❌ = **10 GP**. Final is **2–1 home** → outcome ✅ (+10) + exact ✅ (+25) = **35 GP**.
 
+The two are still **scored as separate bets**, but the slip only asks for the **exact score** — the 1/X/2 result is **derived from it** (2–1 ⇒ home win), so there's no redundant double-entry and no separate result picker. The slip explains the split inline ("+10 for the correct result, +25 bonus for the exact scoreline"). Under the hood the score is written as both an `outcome` bet (+10 for a correct result) and an `exact_score` bet (+25 bonus, all-or-nothing) — a nailed score pays **35** across the two.
+
 ### Bonus bets — optional, one per match
 
 A single optional **bonus bet** slot per slip, chosen from the same picker. Five are tied

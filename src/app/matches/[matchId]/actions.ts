@@ -35,7 +35,6 @@ export async function submitBet(
     return { error: 'This match is locked — bets closed at kickoff.' };
   }
 
-  const outcomeResult = formData.get('outcome') as string | null;
   const homeScoreRaw = formData.get('home_score') as string | null;
   const awayScoreRaw = formData.get('away_score') as string | null;
   const hasExactScore = homeScoreRaw !== null && homeScoreRaw !== '' && awayScoreRaw !== null && awayScoreRaw !== '';
@@ -45,10 +44,7 @@ export async function submitBet(
   const bonusType = ((formData.get('bonus_type') as string | null)?.trim() || '') as BetType | '';
   const bonusValue = (formData.get('bonus_value') as string | null)?.trim() || '';
 
-  // Core bets are mandatory.
-  if (!outcomeResult) {
-    return { error: 'Pick a match outcome.' };
-  }
+  // The exact score is the only core input — the 1/X/2 result is derived from it.
   if (!hasExactScore) {
     return { error: 'Enter an exact score.' };
   }
@@ -88,15 +84,8 @@ export async function submitBet(
     return { error: 'Exact score values must be between 0 and 20.' };
   }
 
-  if (!['home', 'draw', 'away'].includes(outcomeResult)) {
-    return { error: 'Invalid outcome selection.' };
-  }
-
-  // The exact score must agree with the chosen outcome.
-  const impliedResult = homeScore > awayScore ? 'home' : homeScore < awayScore ? 'away' : 'draw';
-  if (impliedResult !== outcomeResult) {
-    return { error: 'Your exact score must match the outcome you picked.' };
-  }
+  // Derive the 1/X/2 result from the score — the slip no longer asks for it twice.
+  const outcomeResult = homeScore > awayScore ? 'home' : homeScore < awayScore ? 'away' : 'draw';
 
   // ─── Staking (GAME_DESIGN §5) ─────────────────────────────────────────────
   // One stake rides the whole match slip, not individual bets. The chosen tier's

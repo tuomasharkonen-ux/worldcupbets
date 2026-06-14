@@ -138,7 +138,6 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
   }, [state, stepping, slate?.nextHref, returnTo, onSaved, router]);
 
   // Core bets are mandatory — track them so we can gate the submit button.
-  const [outcome, setOutcome] = useState<string>(existing.outcome ?? '');
   const [homeScore, setHomeScore] = useState<string>(existing.exactScore?.home?.toString() ?? '');
   const [awayScore, setAwayScore] = useState<string>(existing.exactScore?.away?.toString() ?? '');
 
@@ -150,34 +149,20 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
   const handleBonusChange = useCallback((v: BonusSlotValue | null) => setBonusType(v?.type ?? null), []);
   const handleStakeChange = useCallback((_coins: number, mult: number) => setStakeMult(mult), []);
 
-  const coreComplete = outcome !== '' && homeScore !== '' && awayScore !== '';
   const hasExact = homeScore !== '' && awayScore !== '';
-
-  // The exact score must agree with the chosen outcome (a win pick needs that team
-  // ahead; a draw pick needs level scores).
-  const impliedResult = hasExact
-    ? Number(homeScore) > Number(awayScore)
-      ? 'home'
-      : Number(homeScore) < Number(awayScore)
-        ? 'away'
-        : 'draw'
-    : null;
-  const scoreMismatch = outcome !== '' && impliedResult !== null && impliedResult !== outcome;
-  const mismatchMsg = scoreMismatch
-    ? outcome === 'draw'
-      ? 'You picked a draw — the exact score must be level.'
-      : `You picked ${outcome === 'home' ? homeTeam : awayTeam} to win — the exact score must show them ahead.`
-    : null;
+  const coreComplete = hasExact;
 
   // Best-case Points if every current pick lands, with the stage × stake multiplier
   // applied (uncapped, rounded per pick to match the engine).
   const effMult = scoring.stageMult * stakeMult;
   const capPts = (base: number) => Math.round(base * effMult);
+  // A nailed score scores both core bets: the result (outcome) and the exact-score
+  // bonus, each rounded per pick to match the settlement engine.
   const maxPoints =
-    (outcome !== '' ? capPts(scoring.outcome) : 0) +
-    (hasExact ? capPts(scoring.outcome + scoring.exactBonus) : 0) +
+    (hasExact ? capPts(scoring.outcome) : 0) +
+    (hasExact ? capPts(scoring.exactBonus) : 0) +
     (bonusType ? capPts(scoring.props[bonusType]) : 0);
-  const hasPicks = outcome !== '' || hasExact || bonusType != null;
+  const hasPicks = hasExact || bonusType != null;
 
   return (
     <form action={formAction} className="space-y-6">
@@ -200,47 +185,15 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
         </div>
       )}
 
-      {/* Outcome — required */}
-      <fieldset className="space-y-2.5">
-        <legend className="flex w-full items-center justify-between text-sm font-medium text-muted">
-          <span>Match outcome</span>
-          <span className="font-mono text-xs font-semibold text-points">{scoring.outcome} pts</span>
-        </legend>
-        <div className="grid grid-cols-3 gap-2.5">
-          {(['home', 'draw', 'away'] as const).map(opt => {
-            const label = opt === 'home' ? homeTeam : opt === 'away' ? awayTeam : 'Draw';
-            return (
-              <label
-                key={opt}
-                className={`group relative flex cursor-pointer flex-col items-center justify-center rounded-2xl border bg-surface-2 px-3 py-4 text-center font-display text-sm font-semibold leading-tight text-foreground transition-[transform,border-color,background-color,box-shadow]
-                  border-border hover:border-border-strong
-                  has-[:checked]:-translate-y-0.5 has-[:checked]:border-[var(--color-primary-bright)] has-[:checked]:bg-[color-mix(in_oklab,var(--color-primary-bright)_18%,transparent)] has-[:checked]:shadow-[0_4px_0_0_var(--color-primary-press)]
-                  has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-[var(--color-primary-bright)]
-                  ${locked ? 'cursor-not-allowed opacity-50' : ''}`}
-              >
-                <input
-                  type="radio"
-                  name="outcome"
-                  value={opt}
-                  disabled={locked}
-                  checked={outcome === opt}
-                  onChange={e => setOutcome(e.target.value)}
-                  className="sr-only"
-                />
-                {opt !== 'draw' && <Flag name={label} size="lg" className="mb-1.5" />}
-                {label}
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
-
-      {/* Exact score — required */}
-      <fieldset className="space-y-2.5">
-        <legend className="flex w-full items-center justify-between text-sm font-medium text-muted">
-          <span>Exact score</span>
-          <span className="font-mono text-xs font-semibold text-points">{scoring.exactBonus} pts</span>
-        </legend>
+      {/* Exact score — the only core input. The 1/X/2 result is derived from it at
+          settlement; both are scored (result + exact bonus), explained inline below. */}
+      <fieldset className="space-y-2.5 rounded-2xl border border-border bg-surface-2/40 p-4">
+        {/* Heading is a <p>, not a <legend>: a legend renders on the card's top border
+            and overlaps it. Matches the stake card below. */}
+        <p className="flex w-full items-center justify-between text-sm font-medium text-muted">
+          <span>Match result</span>
+          <span className="font-mono text-xs font-semibold text-points">up to {scoring.outcome + scoring.exactBonus} pts</span>
+        </p>
         <div className="flex items-end gap-3">
           <div className="flex-1 space-y-1">
             <label htmlFor="home_score" className="flex items-center gap-1.5 truncate text-xs text-subtle">
@@ -280,12 +233,13 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
             />
           </div>
         </div>
-        {mismatchMsg && (
-          <p className="flex items-center gap-1.5 text-xs text-danger">
-            <AlertCircle className="size-3.5 shrink-0" aria-hidden />
-            {mismatchMsg}
-          </p>
-        )}
+        {/* The score is scored twice over — the 1/X/2 result and the exact line —
+            so there's no separate result picker to fill in. */}
+        <p className="text-xs leading-relaxed text-subtle">
+          Scored two ways — <span className="font-semibold text-points">+{scoring.outcome}</span> for the
+          correct result, plus a <span className="font-semibold text-points">+{scoring.exactBonus}</span> bonus
+          for the exact scoreline.
+        </p>
       </fieldset>
 
       {/* Bonus bet — optional, one slot */}
@@ -356,13 +310,13 @@ export function BetSlip({ matchId, homeTeam, awayTeam, locked, squads, stake, sc
       {!locked && !coreComplete && (
         <p className="flex items-center gap-1.5 text-xs text-subtle">
           <AlertCircle className="size-3.5" aria-hidden />
-          Pick an outcome and an exact score to save.
+          Enter an exact score to save.
         </p>
       )}
 
       <SubmitButton
-        disabled={locked || !coreComplete || scoreMismatch}
-        incomplete={!coreComplete || scoreMismatch}
+        disabled={locked || !coreComplete}
+        incomplete={!coreComplete}
         saved={saved}
         hasNext={slate?.nextHref != null}
         counter={slate && slate.total > 1 ? `${slate.index}/${slate.total}` : undefined}
