@@ -15,7 +15,7 @@ export type MatchRow = Match & { home_team: Team; away_team: Team };
 // ─── primitives ──────────────────────────────────────────────────────────────
 
 function team(id: string, name: string, code: string, odds: number | null = null): Team {
-  return { id, name, country_code: code, flag_url: null, fd_team_id: null, sofa_team_id: null, champion_odds: odds };
+  return { id, name, country_code: code, flag_url: null, fd_team_id: null, sofa_team_id: null, af_team_id: null, champion_odds: odds };
 }
 
 export const TEAMS = {
@@ -90,6 +90,7 @@ function match(
     away_score: null,
     glory_multiplier: 1,
     settled_at: null,
+    af_fixture_id: null,
     winner_team_id: null,
     ...extra,
     home_team: home,

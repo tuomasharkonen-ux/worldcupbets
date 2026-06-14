@@ -22,7 +22,7 @@ A small full-stack Next.js app on Vercel, a Supabase Postgres database, and two 
                  ┌───────────▼─────────┐ ┌───────▼──────────────────┐
                  │  Supabase Postgres  │ │  Data sources            │
                  │  (game state)       │ │  • football-data.org     │
-                 └─────────────────────┘ │  • Sofascore (unofficial)│
+                 └─────────────────────┘ │  • API-Football (Pro)    │
                                          └──────────────────────────┘
 ```
 
@@ -86,29 +86,28 @@ Keeping it pure makes it unit-testable against fixture JSON without a database, 
 - Auth via a free API token in `FOOTBALL_DATA_TOKEN`. Rate limit ~10 req/min — trivially within budget.
 - Scores are *delayed* on the free tier, which is fine: settlement is post-match, not live.
 - Powers: schedule, kickoff times, outcome, exact score → i.e. **the core score-based bets**.
-- ⚠️ **The free tier does NOT provide goalscorers, cards, or lineups for WC2026.** Verified 2026-06-14 against a `FINISHED` match: `/matches/{id}` returns `goals: []`, `bookings: []`, and empty `lineup` even days later — not a delay, a plan limitation. So **first/anytime-scorer, carded, and lineup-based SUSP flags cannot settle from this source.** Those props need a different provider (Sofascore / API-Football — see below). Until then the engine **voids** scorer/card props (refund, no Glory) rather than falsely marking them lost, and `settle` **defers** within a grace window in case data ever arrives. (June 13: Brazil 1–1 Morocco settled with zero scorers, voiding two correct Vinícius anytime picks — the trigger for this whole guard.)
+- ⚠️ **The free tier does NOT provide goalscorers, cards, or lineups for WC2026.** Verified 2026-06-14 against a `FINISHED` match: `/matches/{id}` returns `goals: []`, `bookings: []`, and empty `lineup` even days later — not a delay, a plan limitation. So first/anytime-scorer, carded, and lineup-based void logic **cannot** settle from this source — that's why **API-Football** (below) is now the granular provider. football-data stays the schedule/score backbone. When a match isn't yet mapped to API-Football the engine still **voids** scorer/card props (refund, no Glory) rather than falsely marking them lost, and `settle` **defers** within a grace window. (June 13: Brazil 1–1 Morocco settled with zero scorers, voiding two correct Vinícius anytime picks — the trigger for this whole guard, now fixed by the API-Football integration.)
 
-### Sofascore unofficial API (the granular layer)
+### API-Football (the granular layer)
 
-- Undocumented JSON endpoints the Sofascore apps call (`api.sofascore.com/api/v1/...`). Used post-match for per-player stats: passes, shots, touches, ratings.
-- Powers: the **Stat Leader prop** only.
-- **Treat as best-effort.** It can change format or get Cloudflare-throttled. Therefore:
-  - Call it **politely** — one request per finished match, a sane `User-Agent`, ≥several seconds between calls. Never hammer it.
-  - Wrap every call in try/catch. On failure, **void affected Stat Leader props** (refund stake, no Glory) rather than failing the whole settlement.
-  - Cache the raw response so you never re-fetch the same match.
+- Direct api-sports.io access (`https://v3.football.api-sports.io`, `x-apisports-key` header) — client in `src/lib/api-football.ts`. **Pro plan ($19/mo, ~$38 for the tournament):** the free plan only exposes seasons 2022–2024, not WC2026. Pro gives 7,500 req/day — vastly more than the few finished matches/day need.
+- Powers: **first/anytime-scorer and carded props**, plus lineup-driven prop void logic and the favorite-player goal/booking bonuses — everything that needs to know *who* scored or was booked.
+- The WC2026 competition is **league `1`, season `2026`** (confirmed via the `af-probe` route; overridable with `API_FOOTBALL_WC_LEAGUE_ID` / `API_FOOTBALL_WC_SEASON`).
+- **How it plugs in:** `fetchMatchEvents()` in `src/settlement/run.ts` dispatches on `matches.af_fixture_id` — a mapped match pulls goals/cards (`/fixtures/events`) and lineups (`/fixtures/lineups`) from API-Football; anything unmapped falls back to football-data. AF events carry `player.id`, so footballers resolve by `af_player_id` with **no name-matching on the settle path**. Appearances = starting XI + both players named in each substitution event (direction-agnostic).
+
+### Sofascore unofficial API (unused)
+
+- Was the original plan for the never-implemented **Stat Leader prop**. That prop was dropped (migration `008`), so Sofascore isn't called anywhere. `sofa_*` id columns remain as harmless placeholders.
 
 ### The ID-mapping gotcha (call this out to whoever builds it)
 
-football-data.org and Sofascore use **different IDs** for the same teams and players. You need a mapping layer:
+football-data.org and API-Football use **different IDs** for the same teams, fixtures, and players. The mapping layer:
 
-- `teams.fd_team_id` ↔ `teams.sofa_team_id`
-- `footballers.fd_player_id` ↔ `footballers.sofa_player_id`
+- `teams.fd_team_id` ↔ `teams.af_team_id`
+- `matches.fd_match_id` ↔ `matches.af_fixture_id`
+- `footballers.fd_player_id` ↔ `footballers.af_player_id`
 
-Build this once after the squads are confirmed (~June 1), semi-manually if needed — 48 teams is tractable. Match on name + country + DOB where possible. This is the single most annoying piece of plumbing; budget time for it.
-
-### Fallback
-
-If the Sofascore dependency proves too flaky during the tournament, the documented escape hatch is to subscribe to **API-Football** (~€19 for June+July) and point the granular-stats adapter at it instead. The ingestion layer is written behind an interface (`StatsProvider`) precisely so this swap is localized.
+Built once (re-runnably) by the **`af-map` cron route** (`src/lib/af-mapping.ts`): teams match by name (with an alias table for Korea Republic↔South Korea, IR Iran↔Iran, …), fixtures by unordered team-pair + kickoff date, players by normalized name within each team (last-name fallback). Run `af-map?dry=1` first and eyeball the unmatched lists before committing. Migration `012` adds the three `af_*` columns. This is the single most annoying piece of plumbing; the dry-run report is how you tame it.
 
 ## 4. Security & access
 

@@ -135,6 +135,9 @@ export interface Team {
   flag_url: string | null;
   fd_team_id: number | null;
   sofa_team_id: number | null;
+  // API-Football (api-sports.io) team id (migration 012). Null until the mapping sync
+  // pairs it by name. Used to resolve fixtures + fetch squads for the player mapping.
+  af_team_id: number | null;
   // Pre-tournament decimal championship odds (migration 009). Drives the favorite-team
   // underdog multiplier. Null until seeded.
   champion_odds: number | null;
@@ -153,6 +156,10 @@ export interface Footballer {
   photo_url: string | null;
   fd_player_id: number | null;
   sofa_player_id: number | null;
+  // API-Football (api-sports.io) player id (migration 012). Null until the mapping sync
+  // pairs it by name within the team. This is what settlement keys events on — AF events
+  // carry player.id, so no name-matching happens at settle time, only once here.
+  af_player_id: number | null;
   availability: PlayerAvailability;
   availability_note: string | null;
   availability_updated_at: string | null;
@@ -172,6 +179,10 @@ export interface Match {
   away_score: number | null;
   glory_multiplier: number;
   settled_at: string | null;
+  // API-Football (api-sports.io) fixture id (migration 012). Null until the mapping sync
+  // pairs it by kickoff date + teams. When set, settlement pulls goals/cards/lineups from
+  // API-Football (the granular source) instead of football-data's free tier.
+  af_fixture_id: number | null;
   // The actual winner (migration 009) — set for finished knockouts, where a penalty
   // shootout can leave the scoreline level. Null for group games and draws.
   winner_team_id: string | null;

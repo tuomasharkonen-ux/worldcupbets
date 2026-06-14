@@ -1,6 +1,7 @@
 import { after } from 'next/server';
 import { db } from '@/lib/supabase';
 import { getCompetitionMatches, getMatchDetail, mapFdStatus } from '@/lib/football-data';
+import { getFixtureEvents, getFixtureLineups, type AfEvent } from '@/lib/api-football';
 import { settle, settleBet } from '@/settlement/engine';
 import { closeSlate } from '@/settlement/dayclose';
 import {
@@ -670,10 +671,16 @@ interface FetchedMatchData {
   hasGoals: boolean;
 }
 
-// Read-only: fetch + parse goals/cards/lineups from football-data, mapped to our
-// footballer UUIDs. No DB writes — so the props-backfill can use it to *preview* what
-// a real run would settle. Throws on fetch failure.
+// Read-only: fetch + parse goals/cards/lineups for a match, mapped to our footballer
+// UUIDs. No DB writes — so the props-backfill can use it to *preview* what a real run
+// would settle. Throws on fetch failure.
+//
+// Source dispatch: a match mapped to API-Football (af_fixture_id set) uses that — the
+// granular provider with real scorers/cards/lineups. Everything else falls back to
+// football-data's free tier (schedule/score only; no goal/card detail for WC2026).
 export async function fetchMatchEvents(match: Match): Promise<FetchedMatchData> {
+  if (match.af_fixture_id != null) return fetchMatchEventsFromAf(match);
+
   // Map football-data player ids → our footballer UUIDs (both teams' squads).
   const { data: players } = await db
     .from('footballers')
@@ -722,6 +729,85 @@ export async function fetchMatchEvents(match: Match): Promise<FetchedMatchData> 
 
   const hasGoals = eventRows.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
   return { eventRows, appeared: [...appeared], hasGoals };
+}
+
+// Read-only API-Football fetch for a mapped fixture. Same contract as fetchMatchEvents:
+// returns the rows to write, never writes. Resolves footballers by af_player_id — AF
+// events/lineups carry player.id, so there's no name-matching here (that happened once,
+// in the mapping sync). Throws on fetch failure, same as the football-data path.
+async function fetchMatchEventsFromAf(match: Match): Promise<FetchedMatchData> {
+  const fixtureId = match.af_fixture_id!;
+
+  // af player id → our footballer UUID (both teams' squads).
+  const { data: players } = await db
+    .from('footballers')
+    .select('id, af_player_id')
+    .in('team_id', [match.home_team_id, match.away_team_id]);
+  const byAfId = new Map<number, string>();
+  for (const p of players ?? []) {
+    if (p.af_player_id != null) byAfId.set(p.af_player_id as number, p.id as string);
+  }
+
+  const [events, lineups] = await Promise.all([
+    getFixtureEvents(fixtureId),
+    getFixtureLineups(fixtureId),
+  ]);
+
+  // Goals + cards → match_events. AF's `type`/`detail` pair refines the kind:
+  //   Goal: "Normal Goal" | "Penalty" | "Own Goal" | "Missed Penalty" (skip the miss)
+  //   Card: "Yellow Card" | "Red Card"
+  const eventRows: FetchedMatchData['eventRows'] = [];
+  for (const e of events) {
+    const row = afEventToRow(e, byAfId, match.id);
+    if (row) eventRows.push(row);
+  }
+
+  // Appearances: starting XI from lineups + both players named in every substitution
+  // event (one came on, one went off — both took the pitch, regardless of which field
+  // AF puts in `player` vs `assist`, which varies). This drives prop void logic.
+  const appeared = new Set<string>();
+  for (const l of lineups) {
+    for (const p of l.startXI ?? []) {
+      const id = byAfId.get(p.player.id);
+      if (id) appeared.add(id);
+    }
+  }
+  for (const e of events) {
+    if (e.type !== 'subst') continue;
+    for (const pid of [e.player?.id, e.assist?.id]) {
+      if (pid != null) {
+        const id = byAfId.get(pid);
+        if (id) appeared.add(id);
+      }
+    }
+  }
+
+  const hasGoals = eventRows.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
+  return { eventRows, appeared: [...appeared], hasGoals };
+}
+
+// Map one API-Football event to a match_events row, or null for events we don't store
+// (substitutions, VAR, missed penalties).
+function afEventToRow(
+  e: AfEvent,
+  byAfId: Map<number, string>,
+  matchId: string,
+): FetchedMatchData['eventRows'][number] | null {
+  const fid = e.player?.id != null ? byAfId.get(e.player.id) ?? null : null;
+  const minute = e.time?.elapsed ?? null;
+
+  if (e.type === 'Goal') {
+    if (e.detail === 'Missed Penalty') return null;
+    const isOwn = e.detail === 'Own Goal';
+    const type: EventType = isOwn ? 'own_goal' : e.detail === 'Penalty' ? 'penalty' : 'goal';
+    return { match_id: matchId, footballer_id: fid, type, minute, is_own_goal: isOwn };
+  }
+  if (e.type === 'Card') {
+    if (e.detail !== 'Yellow Card' && e.detail !== 'Red Card') return null;
+    const type: EventType = e.detail === 'Red Card' ? 'red' : 'yellow';
+    return { match_id: matchId, footballer_id: fid, type, minute, is_own_goal: false };
+  }
+  return null;
 }
 
 // Fetch from football-data and (re)write match_events + match_appearances for this

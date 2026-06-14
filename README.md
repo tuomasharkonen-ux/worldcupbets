@@ -103,9 +103,21 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/settle
   ```
-- **Repair goalscorer/card props** settled before football-data published the scorers
-  (re-ingests events for already-settled matches and re-settles only their prop bets;
-  add `?dry=1` to preview without writing):
+- **Probe API-Football** (read-only sanity check: plan/quota, resolves the WC2026 league
+  id, proves a finished fixture returns events + lineups — ~5 requests):
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/af-probe
+  ```
+- **Map API-Football ids** (pairs our teams/matches/footballers to API-Football ids →
+  `af_team_id` / `af_fixture_id` / `af_player_id`; **always `?dry=1` first** and eyeball
+  the unmatched lists before committing):
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/af-map?dry=1"
+  curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/af-map"
+  ```
+- **Repair goalscorer/card props** settled before granular data was available
+  (re-ingests events for already-settled matches — now from API-Football — and re-settles
+  only their prop bets; add `?dry=1` to preview without writing):
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/settle-backfill?dry=1"
   ```
