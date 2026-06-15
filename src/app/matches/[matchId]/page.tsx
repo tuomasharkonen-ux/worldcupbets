@@ -126,7 +126,7 @@ export default async function MatchPage({
     const slateMidnightUtc = new Date(`${key}T00:00:00Z`).getTime();
     const { data } = await db
       .from('matches')
-      .select('id, kickoff_at, status')
+      .select('id, kickoff_at, status, settled_at')
       .gte('kickoff_at', new Date(slateMidnightUtc - dayMs).toISOString())
       .lte('kickoff_at', new Date(slateMidnightUtc + 2 * dayMs).toISOString())
       .order('kickoff_at', { ascending: true });
@@ -139,7 +139,12 @@ export default async function MatchPage({
   if (!editing) {
     let activeKey = currentSlateKey(now, rollover);
     let members = await slateMembers(activeKey);
-    if (members.length === 0) {
+    // Mirror the Today screen's slate selection exactly: fall forward to the next
+    // slate with fixtures not only on a rest day (empty slate) but also when the
+    // current slate is fully settled. Without the settled clause the match page would
+    // anchor on today's done slate while Today surfaces tomorrow's — the tapped match
+    // wouldn't be a member, so the stepper (1/N counter + auto-advance) would vanish.
+    if (members.length === 0 || members.every(mm => (mm as { settled_at: string | null }).settled_at != null)) {
       const { data: nextRows } = await db
         .from('matches')
         .select('kickoff_at')
