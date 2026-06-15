@@ -590,10 +590,15 @@ async function buildRecap(
     .select('*')
     .eq('manager_id', managerId)
     .eq('currency', 'coins');
+  const slateMatchIds = new Set(memberIds);
   const slateLedger = ((ledgerRows ?? []) as LedgerEntry[]).filter(
     e =>
       (e.ref_type === 'bet' && myBetIds.has(e.ref_id)) ||
-      (e.ref_type === 'slate' && e.ref_id === slateKey),
+      (e.ref_type === 'slate' && e.ref_id === slateKey) ||
+      // Stake spend is recorded once per match (ref_type 'match'), not per bet — without
+      // this clause the "Coins staked" line is dropped and the recap shows gross bet
+      // winnings instead of the net actually added to the balance.
+      (e.ref_type === 'match' && slateMatchIds.has(e.ref_id)),
   );
   const sumReason = (reason: string) =>
     slateLedger.filter(e => e.reason === reason).reduce((s, e) => s + e.amount, 0);
