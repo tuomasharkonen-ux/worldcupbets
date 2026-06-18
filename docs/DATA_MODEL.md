@@ -2,7 +2,7 @@
 
 Postgres (Supabase). Schema is written to be readable as a migration. Naming convention to avoid the classic trap: the **five humans are `managers`**, the **footballers on the pitch are `footballers`**. Never call a human a "player."
 
-> Balances live in two places on purpose: an append-only `ledger` is the **source of truth**, and `managers.glory` / `managers.coins` are **caches** for fast reads, recomputed on each ledger write inside the same transaction.
+> Balances live in two places on purpose: an append-only `ledger` is the **source of truth**, and `managers.glory` / `managers.coins` are **caches** for fast reads, recomputed from the ledger on each write. The recompute runs through the `recompute_manager_balances(manager_ids uuid[])` SQL function (migration `014`), which sums the ledger and writes the cache in a single atomic statement — settlement fires concurrently from the cron and the on-read `/today` nudge, and an app-side read-modify-write loop here let a stale run clobber a fresh grant (e.g. a slate's participation coins). The function closes that window.
 
 ---
 
