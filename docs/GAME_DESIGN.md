@@ -64,7 +64,7 @@ show an empty "No matches yet" state.
 
 Starting lineups are only confirmed ~20–40 min before kickoff. So:
 
-- Bonus bets that need a specific player (First/Anytime Goalscorer, Anytime Assist, To Score 2+, Carded) let you pick **anyone in the 26-man squad**, not just the starting XI. If your pick doesn't play at all, that bet is **void** (stake refunded, no Glory). The score-based bonus bets (Over/Under, Clean Sheet) have no such risk.
+- Bonus bets that need a specific player (First/Anytime Goalscorer, Anytime Assist, To Score 2+, Carded) let you pick **anyone in the 26-man squad**, not just the starting XI. If your pick doesn't play at all, that bet settles as a **miss** (no Glory) — picking a no-show is on you. The score-based bonus bets (Over/Under, Clean Sheet) have no such risk.
 - This keeps betting open early without punishing players for unknown lineups.
 
 ### Player form guide (in the prop picker)
@@ -243,7 +243,7 @@ The World Cup's own structure provides the escalation; the design leans into it.
 
 These need to be explicit in code so settlement is deterministic:
 
-- **Void props** (player didn't play): stake refunded, 0 Glory, no Coin penalty.
+- **Player didn't play:** the prop settles as a **miss** (0 Glory), not a void — a no-show pick is a loss like any other. `void` is reserved for genuine data gaps (scorer feed never landed, or a carded prop with no match-detail feed at all), so a stray void flags a *bugged* bet rather than a routine non-appearance.
 - **Abandoned / postponed match:** all bets void, stakes refunded; re-open if rescheduled.
 - **Own goals:** count toward the score, but the scorer is **not** credited for Goalscorer props (matches common bookmaker convention).
 - **Penalty shootouts (knockouts):** do not change the "result" for scoring — the match is scored on the 90+ET scoreline as a draw for Outcome/Exact purposes, unless you decide otherwise. *(Decision point — flag for the league.)* Note the **favorite-team champion/3rd-place milestones** (§10) are the exception: they use the true tournament winner from `matches.winner_team_id` (which reflects the shootout), not the scoreline.

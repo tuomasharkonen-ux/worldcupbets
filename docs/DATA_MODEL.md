@@ -145,7 +145,7 @@ the granular API-Football feed (migration `013`); football-data has no scorer de
 | `is_own_goal` | bool | scorer not credited for props |
 
 ### `match_appearances`
-Who actually took the pitch (starting XI + subs who came on), from football-data.org lineups. **Best-effort** — populated by the settle job only when the lineup feed carries data. Powers prop **void** logic.
+Who actually took the pitch (starting XI + subs who came on), from football-data.org lineups. **Best-effort** — populated by the settle job only when the lineup feed carries data. Retained for auditing/display and as one signal in the carded "no feed at all" guard; it no longer drives any non-appearance void (see below).
 
 | Column | Type | Notes |
 | --- | --- | --- |
@@ -154,7 +154,7 @@ Who actually took the pitch (starting XI + subs who came on), from football-data
 | `footballer_id` | uuid FK → footballers | |
 | | | UNIQUE `(match_id, footballer_id)` |
 
-> **Void semantics:** a goalscorer/card prop on a player with no qualifying event settles as `void` (stake untouched — see staking note below — and no Glory) **only if** we have lineup data and the player isn't in it. When the feed omits lineups, `match_appearances` stays empty for that match and the prop settles as `lost` instead — we can't prove non-appearance. Players who *did* score/get carded clearly appeared, so they win regardless.
+> **Non-appearance = miss:** a goalscorer/card prop on a player who had no qualifying event settles as `lost` — **including when the player never made the lineup**. A no-show is treated as a miss, not a refund. This is deliberate: it leaves `void` reserved for genuine data gaps (the feed published a score with no scorers, or a carded prop with no match-detail feed at all), so a stray `void` is a reliable signal of a *bugged* bet rather than a routine "didn't start". Players who *did* score/get carded clearly appeared, so they win regardless.
 
 ### `player_match_stats`
 Per-player granular stats, from Sofascore. Powers the Stat Leader prop. Sparse — rows only exist when the feed succeeded.

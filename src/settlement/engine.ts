@@ -127,13 +127,13 @@ export function settleBet(bet: Bet, input: SettleInput): BetUpdate {
     case 'exact_score':
       return settleExactScore(bet, home, away, mult, config);
     case 'first_scorer':
-      return settleScorerProp(bet, match, events, mult, config, appearances, 'first');
+      return settleScorerProp(bet, match, events, mult, config, 'first');
     case 'anytime_scorer':
-      return settleScorerProp(bet, match, events, mult, config, appearances, 'anytime');
+      return settleScorerProp(bet, match, events, mult, config, 'anytime');
     case 'score_2plus':
-      return settleScorerProp(bet, match, events, mult, config, appearances, 'brace');
+      return settleScorerProp(bet, match, events, mult, config, 'brace');
     case 'anytime_assist':
-      return settleAssistProp(bet, match, events, mult, config, appearances);
+      return settleAssistProp(bet, match, events, mult, config);
     case 'carded':
       return settleCarded(bet, events, mult, config, appearances);
     case 'over_under':
@@ -239,22 +239,13 @@ function firstScorerId(events: MatchEvent[]): string | null {
   return sorted[0].footballer_id;
 }
 
-// Did we appear? `won` short-circuits appearance checks (you can't score without
-// playing). Otherwise: void if we have lineup data and the pick isn't in it,
-// else lost. Empty/absent appearances = no data → never void.
-function propResult(
-  bet: Bet,
-  pickId: string,
-  won: boolean,
-  points: number,
-  coins: number,
-  appearances: string[] | undefined,
-): BetUpdate {
+// A prop that didn't win settles as lost — including when the pick never made the
+// lineup. We deliberately do NOT void on a missing appearance: a non-appearing pick
+// is treated as a miss. That leaves the only remaining prop voids as genuine data
+// gaps (scorerFeedMissing / no-feed carded), so a stray `void` is a reliable signal
+// of a bugged bet rather than a routine "didn't start".
+function propResult(bet: Bet, won: boolean, points: number, coins: number): BetUpdate {
   if (won) return { betId: bet.id, status: 'won', pointsAwarded: points, coinsAwarded: coins };
-  const haveLineups = appearances != null && appearances.length > 0;
-  if (haveLineups && !appearances!.includes(pickId)) {
-    return { betId: bet.id, status: 'void', pointsAwarded: 0, coinsAwarded: 0 };
-  }
   return { betId: bet.id, status: 'lost', pointsAwarded: 0, coinsAwarded: 0 };
 }
 
@@ -264,7 +255,6 @@ function settleScorerProp(
   events: MatchEvent[],
   mult: number,
   config: LeagueConfig,
-  appearances: string[] | undefined,
   kind: 'first' | 'anytime' | 'brace',
 ): BetUpdate {
   const pickId = (bet.selection as FootballerSelection).footballer_id;
@@ -292,7 +282,7 @@ function settleScorerProp(
         : config.glory.anytime_scorer) ?? 0;
   const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
 
-  return propResult(bet, pickId, won, points, config.coins.prop, appearances);
+  return propResult(bet, won, points, config.coins.prop);
 }
 
 // Anytime assist: the chosen player is credited with an assist on any goal. Assist
@@ -305,7 +295,6 @@ function settleAssistProp(
   events: MatchEvent[],
   mult: number,
   config: LeagueConfig,
-  appearances: string[] | undefined,
 ): BetUpdate {
   const pickId = (bet.selection as FootballerSelection).footballer_id;
 
@@ -317,7 +306,7 @@ function settleAssistProp(
   const basePoints = config.glory.anytime_assist ?? 0;
   const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
 
-  return propResult(bet, pickId, won, points, config.coins.prop, appearances);
+  return propResult(bet, won, points, config.coins.prop);
 }
 
 // ─── score-derived bonus bets (not player-based) ──────────────────────────────
@@ -389,7 +378,7 @@ function settleCarded(
   const basePoints = config.glory.carded ?? 0;
   const points = won ? Math.round(basePoints * effMult(mult, bet.stake_mult)) : 0;
 
-  return propResult(bet, pickId, won, points, config.coins.prop, appearances);
+  return propResult(bet, won, points, config.coins.prop);
 }
 
 // Re-export types so callers only need to import from engine.ts

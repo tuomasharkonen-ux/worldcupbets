@@ -174,17 +174,17 @@ describe('staking (GAME_DESIGN §5) — one stake per match, spent either way', 
     expect(result.betUpdates.find(u => u.betId === 'b-exact')?.pointsAwarded).toBe(38); // round(25 * 1.5)
   });
 
-  test('props never hold the match stake — an unstaked void emits nothing', () => {
+  test('props never hold the match stake — an unstaked miss emits nothing', () => {
     const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
     const bet = makeBet({
       bet_type: 'anytime_scorer',
-      selection: { footballer_id: 'plr-99' }, // did not appear → void
+      selection: { footballer_id: 'plr-99' }, // did not appear → miss (lost)
       stake_coins: 0,
       stake_mult: 1.5,
     });
     const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-1'] });
 
-    expect(result.betUpdates[0].status).toBe('void');
+    expect(result.betUpdates[0].status).toBe('lost');
     expect(result.deltas).toHaveLength(0); // no stake_spend (prop holds no coins), no income
   });
 
@@ -421,8 +421,8 @@ describe('missing scorer feed (score present, no goal events)', () => {
   });
 });
 
-describe('prop void logic (non-appearance)', () => {
-  test('pick did not appear → void', () => {
+describe('prop non-appearance logic (treated as a miss)', () => {
+  test('pick did not appear → lost, not void', () => {
     const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
     const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-99' } });
     const result = settle({
@@ -430,14 +430,14 @@ describe('prop void logic (non-appearance)', () => {
       bets: [bet],
       events,
       config: propConfig,
-      appearances: ['plr-1', 'plr-2'], // plr-99 not listed
+      appearances: ['plr-1', 'plr-2'], // plr-99 not listed, but a no-show is still a miss
     });
 
-    expect(result.betUpdates[0].status).toBe('void');
+    expect(result.betUpdates[0].status).toBe('lost');
     expect(result.betUpdates[0].pointsAwarded).toBe(0);
   });
 
-  test('void bets earn no Glory or Coin delta', () => {
+  test('a non-appearing pick earns no Glory or Coin delta', () => {
     const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
     const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-99' } });
     const result = settle({ match, bets: [bet], events, config: propConfig, appearances: ['plr-1'] });
@@ -445,7 +445,7 @@ describe('prop void logic (non-appearance)', () => {
     expect(result.deltas).toHaveLength(0);
   });
 
-  test('no lineup data → unmatched pick settles as lost, not void', () => {
+  test('no lineup data → unmatched pick also settles as lost', () => {
     const events = [makeEvent({ id: 'e1', footballer_id: 'plr-1' })];
     const bet = makeBet({ bet_type: 'anytime_scorer', selection: { footballer_id: 'plr-99' } });
     const result = settle({ match, bets: [bet], events, config: propConfig }); // no appearances
