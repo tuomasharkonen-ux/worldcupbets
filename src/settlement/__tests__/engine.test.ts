@@ -1,6 +1,6 @@
-import { settle } from '../engine';
+import { settle, settleBet, PLAYER_PROP_BET_TYPES, SCORER_FEED_BET_TYPES } from '../engine';
 import fixture from './fixtures/group_match.json';
-import { Bet, Match, LeagueConfig, MatchEvent } from '@/types/db';
+import { Bet, BetType, Match, LeagueConfig, MatchEvent } from '@/types/db';
 
 const { match, config } = fixture as { match: Match; config: LeagueConfig };
 
@@ -584,5 +584,52 @@ describe('idempotency', () => {
     const result = settle({ match, bets: [bet], events: noEvents, config });
 
     expect(result.betUpdates).toHaveLength(0);
+  });
+});
+
+// These lists in the engine gate whether run.ts ingests the granular match feed and
+// defers settling within the grace window. A prop type the engine settles off the feed
+// but that's missing from PLAYER_PROP_BET_TYPES never gets ingested → the engine sees an
+// empty feed and voids the pick. That's the exact bug that voided a real anytime_assist
+// win (Luis Díaz, match day 7): the feed-dependent set drifted from the engine's switch.
+describe('feed-dependency lists stay in sync with the engine', () => {
+  // Every bet type the app supports (mirrors the BetType union — update both together).
+  const ALL_BET_TYPES: BetType[] = [
+    'outcome',
+    'exact_score',
+    'first_scorer',
+    'anytime_scorer',
+    'carded',
+    'over_under',
+    'clean_sheet',
+    'anytime_assist',
+    'score_2plus',
+  ];
+
+  // A bet type is "feed-dependent" if, with goals on the board but no events ingested,
+  // the engine can't settle it and voids the pick (refund) rather than reading the score.
+  // The fixture match is 2–1, so noEvents means "the feed never landed".
+  function voidsOnMissingFeed(betType: BetType): boolean {
+    const bet = makeBet({ bet_type: betType, selection: { footballer_id: 'plr-7' } });
+    return settleBet(bet, { match, bets: [], events: noEvents, config: propConfig }).status === 'void';
+  }
+
+  test('PLAYER_PROP_BET_TYPES covers every prop the engine voids on a missing feed', () => {
+    const feedDependent = ALL_BET_TYPES.filter(voidsOnMissingFeed);
+    // Sanity: at least the five player props are feed-dependent.
+    expect(feedDependent).toEqual(expect.arrayContaining(PLAYER_PROP_BET_TYPES));
+    // The real guard: nothing the engine voids is left out of the ingest list.
+    for (const t of feedDependent) {
+      expect(PLAYER_PROP_BET_TYPES).toContain(t);
+    }
+    // anytime_assist specifically — the type that regressed.
+    expect(PLAYER_PROP_BET_TYPES).toContain('anytime_assist');
+  });
+
+  test('every deferrable (scorer-feed) type is also ingested', () => {
+    for (const t of SCORER_FEED_BET_TYPES) {
+      expect(PLAYER_PROP_BET_TYPES).toContain(t);
+    }
+    expect(SCORER_FEED_BET_TYPES).toContain('anytime_assist');
   });
 });

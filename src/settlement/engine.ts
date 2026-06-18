@@ -14,6 +14,32 @@ import {
 } from '@/types/db';
 import { BetUpdate, CurrencyDelta, SettleInput, SettleResult } from './types';
 
+// Player-based props: bets that can only be settled from the granular match feed
+// (goals/assists/cards + lineups), so the caller must ingest that feed before
+// settling them. Score-derived bets (outcome, exact_score, over_under, clean_sheet)
+// need only the final score and are deliberately absent. A prop missing from this
+// list is never ingested → the engine sees an empty feed and voids the pick, which
+// is exactly how anytime_assist / score_2plus picks were silently lost.
+export const PLAYER_PROP_BET_TYPES: readonly Bet['bet_type'][] = [
+  'first_scorer',
+  'anytime_scorer',
+  'score_2plus',
+  'anytime_assist',
+  'carded',
+];
+
+// The subset of props settled off the goal/assist feed (guarded by scorerFeedMissing):
+// the scorer markets plus assists, all of which the feed can publish after the final
+// score. The caller defers these within a grace window so a slow feed pays the win on
+// retry rather than voiding it. `carded` is intentionally excluded — it has its own
+// all-or-nothing absence guard, not scorerFeedMissing.
+export const SCORER_FEED_BET_TYPES: readonly Bet['bet_type'][] = [
+  'first_scorer',
+  'anytime_scorer',
+  'score_2plus',
+  'anytime_assist',
+];
+
 export function settle(input: SettleInput): SettleResult {
   const { match, bets } = input;
 

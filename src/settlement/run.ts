@@ -2,7 +2,12 @@ import { after } from 'next/server';
 import { db } from '@/lib/supabase';
 import { getCompetitionMatches, getMatchDetail, mapFdStatus } from '@/lib/football-data';
 import { getFixtureEvents, getFixtureLineups, type AfEvent } from '@/lib/api-football';
-import { settle, settleBet } from '@/settlement/engine';
+import {
+  settle,
+  settleBet,
+  PLAYER_PROP_BET_TYPES,
+  SCORER_FEED_BET_TYPES,
+} from '@/settlement/engine';
 import { closeSlate } from '@/settlement/dayclose';
 import {
   favoritePlayerDeltas,
@@ -13,8 +18,10 @@ import {
 import { slateKeyOf } from '@/lib/slate';
 import type { Bet, EventType, League, ManagerState, Match, MatchEvent } from '@/types/db';
 
-// bet_types that need match_events / lineups to settle
-const PROP_BET_TYPES = ['first_scorer', 'anytime_scorer', 'carded'];
+// bet_types that need match_events / lineups to settle. Single source of truth lives
+// in the engine (PLAYER_PROP_BET_TYPES) so the gating here can't drift from the set of
+// props the engine actually settles off the feed.
+const PROP_BET_TYPES: string[] = [...PLAYER_PROP_BET_TYPES];
 
 export interface SettlementResult {
   statusesSynced: number;
@@ -269,18 +276,14 @@ async function settleFavoriteTeams(): Promise<number> {
 }
 
 // Recompute the cached managers.glory / managers.coins from the append-only ledger
-// (the source of truth) for the given managers.
+// (the source of truth) for the given managers. Delegates to the atomic SQL function
+// (migration 014): it sums the ledger and writes the cache in a single statement under
+// a row lock, so there is no app-side read-then-write window for a concurrent run to
+// clobber with a stale total — the lost-update race the per-manager JS loop suffered.
 async function recomputeBalances(managerIds: string[]): Promise<void> {
-  for (const managerId of managerIds) {
-    const { data: rows } = await db
-      .from('ledger')
-      .select('currency, amount')
-      .eq('manager_id', managerId);
-
-    const points = (rows ?? []).filter(r => r.currency === 'glory').reduce((s, r) => s + r.amount, 0);
-    const coins = (rows ?? []).filter(r => r.currency === 'coins').reduce((s, r) => s + r.amount, 0);
-    await db.from('managers').update({ glory: points, coins }).eq('id', managerId);
-  }
+  if (managerIds.length === 0) return;
+  const { error } = await db.rpc('recompute_manager_balances', { manager_ids: managerIds });
+  if (error) throw error;
 }
 
 // Run day-close for a slate, but only once every non-void match on it is settled.
@@ -433,8 +436,7 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
     e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal',
   );
   const needsScorers =
-    pendingBets.some(b => b.bet_type === 'first_scorer' || b.bet_type === 'anytime_scorer') ||
-    favPlayers.length > 0;
+    pendingBets.some(b => SCORER_FEED_BET_TYPES.includes(b.bet_type)) || favPlayers.length > 0;
   const SCORER_GRACE_MS = 8 * 60 * 60 * 1000; // ~kickoff + 8h: well past full time
   const withinGrace = Date.now() - new Date(match.kickoff_at).getTime() < SCORER_GRACE_MS;
   if (needsScorers && totalGoals > 0 && !goalFeedLanded && withinGrace) {
