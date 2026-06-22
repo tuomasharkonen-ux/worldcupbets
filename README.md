@@ -115,9 +115,12 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
   curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/af-map?dry=1"
   curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/af-map"
   ```
-- **Repair goalscorer/card props** settled before granular data was available
-  (re-ingests events for already-settled matches — now from API-Football — and re-settles
-  only their prop bets; add `?dry=1` to preview without writing):
+- **Repair already-settled bets** whose result changed after settlement — goalscorer/card
+  props settled before granular data was available, **and** score-derived bets
+  (outcome/exact_score/over_under/clean_sheet) settled against a score that was later
+  corrected (e.g. a late or own goal added once the match was already finished+settled,
+  which `syncStartedMatchStatuses` no longer re-syncs). Re-evaluates every bet on each
+  settled match and reconciles its ledger rows; add `?dry=1` to preview without writing:
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/settle-backfill?dry=1"
   ```

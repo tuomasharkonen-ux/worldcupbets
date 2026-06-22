@@ -78,6 +78,8 @@ Keeping it pure makes it unit-testable against fixture JSON without a database, 
 
 **Idempotency is mandatory.** The `settle` cron can run twice on the same finished match (overlapping invocations, retries). Guard with `matches.settled_at` and make ledger writes keyed so a re-run produces no new entries.
 
+**Score corrections after settlement.** A match's score is only re-synced while it's `scheduled`/`live`; once it's `finished` + settled, `syncStartedMatchStatuses` leaves it alone. So if the final score is corrected *after* settlement — e.g. a late or own goal that the feed applies once the match has already been settled — score-derived bets (outcome/exact_score/over_under/clean_sheet) keep the status they were settled with and are **not** automatically re-evaluated. The repair path is `backfillSettledBets` (`/api/cron/settle-backfill`), which re-runs the pure engine over every bet on each settled match and reconciles its ledger rows in either direction. (A Spain 4–0 exact-score pick was marked lost exactly this way: the 4th goal was an own goal applied post-settlement.)
+
 ## 3. Data ingestion — the two-source strategy
 
 ### football-data.org (the reliable backbone)

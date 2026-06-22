@@ -507,6 +507,20 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
   return true;
 }
 
+// Load already-persisted events + appearances for a match (the fallback when the live
+// feed carries no scorers, or errored, during a backfill re-evaluation).
+async function loadStoredEvents(matchId: string): Promise<{ evs: MatchEvent[]; appearances: string[] }> {
+  const { data: events } = await db.from('match_events').select('*').eq('match_id', matchId);
+  const { data: appRows } = await db
+    .from('match_appearances')
+    .select('footballer_id')
+    .eq('match_id', matchId);
+  return {
+    evs: (events ?? []) as MatchEvent[],
+    appearances: (appRows ?? []).map(a => a.footballer_id as string),
+  };
+}
+
 export interface BackfillResult {
   dryRun: boolean;
   matchesScanned: number;
@@ -524,17 +538,28 @@ export interface BackfillResult {
   }>;
 }
 
-// One-off repair for prop bets that were settled before football-data published the
-// scorers (the free-tier "score before scorers" gap that auto-lost every goalscorer
-// pick). For each already-settled match carrying prop bets, re-ingest events from the
-// feed, then re-evaluate ONLY its prop bets with the same pure engine. Outcome/exact
-// bets and day-close are untouched — they only need the score, which was always
-// available — so this never re-charges stakes or re-grants slate bonuses.
+// One-off repair for already-settled matches whose stored result no longer matches the
+// bets' settled status. It heals two gaps, both caused by data that landed or changed
+// after the match was first settled:
+//   • prop bets auto-lost because football-data published the final score before the
+//     scorers (the free-tier "score before scorers" gap that lost every goalscorer
+//     pick), and
+//   • score-derived bets (outcome / exact_score / over_under / clean_sheet) settled
+//     against a score that was later corrected — e.g. a late or own goal added to the
+//     scoreboard only after the match had already been settled. syncStartedMatchStatuses
+//     stops refreshing a match's score once it's finished+settled, so without this such a
+//     correction would never reach the bets. (This is exactly how a correct Spain 4–0
+//     exact-score pick was left marked lost when the 4th goal — an own goal — was applied
+//     post-settlement.)
 //
-// Per-bet ledger reconciliation (delete the bet's prior win/coin rows, re-insert the
-// new result) makes it safe to run repeatedly and in any direction (lost→won,
-// won→void, …). Pass dryRun to preview the changes without writing.
-export async function backfillSettledProps(dryRun = false): Promise<BackfillResult> {
+// For each already-settled match: re-ingest events from the feed (only when the match
+// carries prop bets — score-derived bets read just the final score, already on the match
+// row), then re-evaluate every bet with the same pure engine. Per-bet ledger
+// reconciliation (delete the bet's prior win/coin rows, re-insert the new result) makes
+// it safe to run repeatedly and in any direction (lost→won, won→void, …). The
+// match-scoped stake_spend and the day-close slate grants are untouched. Pass dryRun to
+// preview the changes without writing.
+export async function backfillSettledBets(dryRun = false): Promise<BackfillResult> {
   const { data: league, error: leagueErr } = await db
     .from('league')
     .select('*')
@@ -552,15 +577,11 @@ export async function backfillSettledProps(dryRun = false): Promise<BackfillResu
     changes: [],
   };
 
-  // Settled matches that carry at least one prop bet.
-  const { data: propRows } = await db.from('bets').select('match_id').in('bet_type', PROP_BET_TYPES);
-  const matchIds = [...new Set((propRows ?? []).map(b => b.match_id as string))];
-  if (matchIds.length === 0) return result;
-
+  // Every already-settled match — a post-settlement score correction can flip a
+  // score-derived bet on any of them, not only the ones carrying props.
   const { data: matchRows } = await db
     .from('matches')
     .select('*')
-    .in('id', matchIds)
     .not('settled_at', 'is', null);
   const matches = (matchRows ?? []) as Match[];
   result.matchesScanned = matches.length;
@@ -568,42 +589,39 @@ export async function backfillSettledProps(dryRun = false): Promise<BackfillResu
   const affectedManagers = new Set<string>();
 
   for (const match of matches) {
-    // Always read the live feed (read-only) so even a dry run previews what a real
-    // run would settle. If the feed now carries scorers, evaluate against those and
-    // persist them on a real run; if it still has none, fall back to whatever events
-    // we already have (the ingest guard would keep them) so we never wipe good data.
-    let evs: MatchEvent[];
-    let appearances: string[];
-    try {
-      const fetched = await fetchMatchEvents(match);
-      if (fetched.hasGoals) {
-        evs = fetched.eventRows.map((r, i) => ({ id: `preview-${i}`, ...r })) as MatchEvent[];
-        appearances = fetched.appeared;
-        if (!dryRun) await ingestMatchData(match); // persist the freshly-fetched events
-      } else {
-        const { data: events } = await db.from('match_events').select('*').eq('match_id', match.id);
-        evs = (events ?? []) as MatchEvent[];
-        const { data: appRows } = await db
-          .from('match_appearances')
-          .select('footballer_id')
-          .eq('match_id', match.id);
-        appearances = (appRows ?? []).map(a => a.footballer_id as string);
+    const { data: betRows } = await db.from('bets').select('*').eq('match_id', match.id);
+    const bets = (betRows ?? []) as Bet[];
+    if (bets.length === 0) continue;
+
+    // Props need the goal/card/lineup feed; score-derived bets read only the final score
+    // (already on the match row), so only pay for the feed when props are present. Read
+    // the live feed (read-only) so even a dry run previews what a real run would settle;
+    // if it now carries scorers, evaluate against those and persist them on a real run,
+    // otherwise fall back to whatever events we already have. A feed outage must not block
+    // re-evaluating this match's score-derived bets, so on error we fall back too.
+    const hasProps = bets.some(b => PROP_BET_TYPES.includes(b.bet_type));
+    let evs: MatchEvent[] = [];
+    let appearances: string[] = [];
+    if (hasProps) {
+      try {
+        const fetched = await fetchMatchEvents(match);
+        if (fetched.hasGoals) {
+          evs = fetched.eventRows.map((r, i) => ({ id: `preview-${i}`, ...r })) as MatchEvent[];
+          appearances = fetched.appeared;
+          if (!dryRun) await ingestMatchData(match); // persist the freshly-fetched events
+        } else {
+          ({ evs, appearances } = await loadStoredEvents(match.id));
+        }
+      } catch (err) {
+        console.error(`[backfill] feed fetch for match ${match.id} failed (using stored events):`, err);
+        ({ evs, appearances } = await loadStoredEvents(match.id));
       }
-    } catch (err) {
-      console.error(`[backfill] feed fetch for match ${match.id} failed (skipping):`, err);
-      continue;
-    }
-    if (evs.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal')) {
-      result.matchesWithScorers++;
+      if (evs.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal')) {
+        result.matchesWithScorers++;
+      }
     }
 
-    const { data: bets } = await db
-      .from('bets')
-      .select('*')
-      .eq('match_id', match.id)
-      .in('bet_type', PROP_BET_TYPES);
-
-    for (const bet of (bets ?? []) as Bet[]) {
+    for (const bet of bets) {
       const update = settleBet(bet, {
         match,
         bets: [],

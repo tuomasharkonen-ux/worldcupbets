@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/cron';
-import { backfillSettledProps } from '@/settlement/run';
+import { backfillSettledBets } from '@/settlement/run';
 
-// One-off repair endpoint for prop bets that were settled before football-data
-// published the scorers (every goalscorer pick was auto-lost for lack of data).
-// Re-ingests events for already-settled matches and re-settles ONLY their prop bets.
+// One-off repair endpoint for already-settled matches whose result changed after they
+// were settled: prop bets auto-lost before football-data published the scorers, and
+// score-derived bets (outcome/exact_score/over_under/clean_sheet) settled against a
+// score that was later corrected (e.g. a late or own goal). Re-evaluates every bet on
+// each settled match with the same pure engine and reconciles its ledger rows.
 //
 //   GET .../settle-backfill?dry=1   → preview the changes, write nothing
 //   GET .../settle-backfill         → apply them
@@ -17,7 +19,7 @@ export async function GET(req: NextRequest) {
 
   const dryRun = new URL(req.url).searchParams.get('dry') === '1';
   try {
-    const result = await backfillSettledProps(dryRun);
+    const result = await backfillSettledBets(dryRun);
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error('[settle-backfill] error:', err);
