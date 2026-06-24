@@ -59,7 +59,12 @@ async function fetchSlateMembers(slateKey: string, rollover: number): Promise<Ma
     .select('*, home_team:home_team_id(*), away_team:away_team_id(*)')
     .gte('kickoff_at', windowStart)
     .lte('kickoff_at', windowEnd)
-    .order('kickoff_at', { ascending: true });
+    // Secondary sort by the stable id PK: kickoff_at alone leaves the order of two
+    // same-kickoff matches undefined, so it can differ from the match page's stepper
+    // order and from load to load. Pinning it keeps the slate (and the remaining-bets
+    // count) consistent with the stepper navigation in matches/[matchId]/page.tsx.
+    .order('kickoff_at', { ascending: true })
+    .order('id', { ascending: true });
 
   return ((data ?? []) as MatchRow[]).filter(
     m => m.status !== 'void' && slateKeyOf(m.kickoff_at, rollover) === slateKey,

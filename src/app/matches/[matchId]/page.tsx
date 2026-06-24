@@ -129,7 +129,13 @@ export default async function MatchPage({
       .select('id, kickoff_at, status, settled_at')
       .gte('kickoff_at', new Date(slateMidnightUtc - dayMs).toISOString())
       .lte('kickoff_at', new Date(slateMidnightUtc + 2 * dayMs).toISOString())
-      .order('kickoff_at', { ascending: true });
+      // Secondary sort by id: kickoff_at alone is non-deterministic when two matches
+      // share a kickoff, so the tie order varies between page loads. The stepper picks
+      // the next match via findIndex + idx+1, so an unstable tie order makes a same-time
+      // match land after its partner on its own page → idx+1 skips the partner. The id
+      // PK is stable, so every load (and the Today screen) agrees on the order.
+      .order('kickoff_at', { ascending: true })
+      .order('id', { ascending: true });
     return (data ?? []).filter(
       mm => mm.status !== 'void' && slateKeyOf(mm.kickoff_at as string, rollover) === key,
     );

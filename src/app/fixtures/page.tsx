@@ -50,7 +50,10 @@ export default async function FixturesPage() {
     .from('matches')
     .select('*, home_team:home_team_id(*), away_team:away_team_id(*)')
     .neq('status', 'void')
-    .order('kickoff_at', { ascending: true });
+    // Stable secondary sort so same-kickoff matches list in a fixed order, matching
+    // the Today slate and the match-page stepper.
+    .order('kickoff_at', { ascending: true })
+    .order('id', { ascending: true });
 
   const matches = (matchData ?? []) as MatchRow[];
 
