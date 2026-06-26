@@ -62,12 +62,15 @@ export async function buildSocialData(opts: {
   const { viewerId, slateKey, members, now } = opts;
   const memberIds = members.map(m => m.id);
 
+  // Project only the columns the feed renders. `bets.selection` (JSON) is the bulk
+  // and is needed; dropping the rest (id, status, glory, stakes, timestamps) trims
+  // every poll. Matters because this query re-runs on the /today live-feed poll.
   const [{ data: managerRows }, { data: betRows }, { data: commentRows }] = await Promise.all([
     db.from('managers').select('id, display_name, avatar_url').order('display_name'),
-    db.from('bets').select('*').in('match_id', memberIds),
+    db.from('bets').select('manager_id, match_id, bet_type, selection, stake_mult').in('match_id', memberIds),
     db
       .from('comments')
-      .select('*')
+      .select('id, manager_id, body, gif_url, created_at')
       .eq('slate_key', slateKey)
       .order('created_at', { ascending: true })
       .limit(FEED_LIMIT),
@@ -83,7 +86,7 @@ export async function buildSocialData(opts: {
   // Reactions for the feed's comments.
   const commentIds = comments.map(c => c.id);
   const { data: commentReactionRows } = commentIds.length > 0
-    ? await db.from('reactions').select('*').in('comment_id', commentIds)
+    ? await db.from('reactions').select('emoji, manager_id, comment_id').in('comment_id', commentIds)
     : { data: [] as Reaction[] };
   const commentReactions = (commentReactionRows ?? []) as Reaction[];
 

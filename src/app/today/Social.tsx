@@ -93,24 +93,38 @@ function formatCommentTime(utc: string) {
 
 // How often the feed re-pulls server data while the tab is visible. Server
 // actions already refresh the page for your own posts/reactions; this is only
-// for catching everyone else's.
-const POLL_MS = 30_000;
+// for catching everyone else's. Kept deliberately slow (and gated by `poll`,
+// below) because each refresh re-queries Supabase for everyone's bets + the
+// comment feed — on a busy match day with many open tabs that is the single
+// biggest source of database egress.
+const POLL_MS = 60_000;
 
 // ─── root ───────────────────────────────────────────────────────────────────────
 
-export function Social({ data, preview = false }: { data: SocialData; preview?: boolean }) {
+export function Social({
+  data,
+  preview = false,
+  poll = true,
+}: {
+  data: SocialData;
+  preview?: boolean;
+  /** Keep polling for others' activity. The page turns this off once the slate is
+   *  fully settled — the feed is frozen at that point and the recap takes over, so
+   *  there's nothing new to fetch and no reason to keep hitting the database. */
+  poll?: boolean;
+}) {
   const router = useRouter();
   const [, startTransition] = React.useTransition();
   // One reaction picker open at a time, keyed by comment id.
   const [openPicker, setOpenPicker] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    if (preview) return;
+    if (preview || !poll) return;
     const t = setInterval(() => {
       if (document.visibilityState === 'visible') router.refresh();
     }, POLL_MS);
     return () => clearInterval(t);
-  }, [preview, router]);
+  }, [preview, poll, router]);
 
   const react = (emoji: string, commentId: string) => {
     setOpenPicker(null);

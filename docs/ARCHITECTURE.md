@@ -28,6 +28,12 @@ A small full-stack Next.js app on Vercel, a Supabase Postgres database, and two 
 
 There is no websocket layer and no live in-match feed requirement. Bets lock at kickoff and settle after full time, so a polling cadence of minutes is entirely sufficient.
 
+**Egress discipline (we run on the Supabase free tier — 5 GB/month).** The cost scales with match-day traffic, so the read-heavy paths are deliberately frugal:
+
+- The `/today` social feed (`Social.tsx`) polls with `router.refresh()` on a **60-second** interval, only while the tab is visible **and** only while the slate isn't fully settled (the `poll` prop) — once every match has settled the feed is frozen and the recap takes over, so open tabs stop re-querying.
+- `buildSocialData` (`social-data.ts`) projects only the columns the feed renders rather than `select('*')` — the per-poll payload is everyone's bets + the comment feed, so its width is multiplied by every open tab.
+- `/fixtures` and `/leaderboard` wrap their **global** reads (the full match list; the standings) in `unstable_cache` with a 60s TTL, so a post-result rush collapses to roughly one DB read per minute. Per-viewer bits (your bets, the "you" highlight) stay uncached.
+
 ## 2. Components
 
 ### Frontend (Next.js App Router + TypeScript + Tailwind)

@@ -239,6 +239,9 @@ export default async function TodayPage() {
     state === 'allset' || state === 'settling'
       ? await buildSocialData({ viewerId: managerId, slateKey, members, now })
       : null;
+  // Once every match on the slate is settled the feed is frozen and the recap is
+  // imminent — stop the client poll so open tabs don't keep re-querying the feed.
+  const socialPoll = social != null && !members.every(m => m.settled_at != null);
 
   // ─── settling (state 3) ────────────────────────────────────────────────────
   if (state === 'settling') {
@@ -264,7 +267,7 @@ export default async function TodayPage() {
             <p className="font-mono text-xs text-subtle">{settledCount} of {members.length} settled</p>
           </div>
         </Card>
-        {social && <Social data={social} />}
+        {social && <Social data={social} poll={socialPoll} />}
       </Shell>
     );
   }
@@ -488,7 +491,7 @@ export default async function TodayPage() {
         </div>
       )}
 
-      {social && <Social data={social} />}
+      {social && <Social data={social} poll={socialPoll} />}
     </Shell>
   );
 }
