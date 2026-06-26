@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { unstable_cache } from 'next/cache';
 import Link from 'next/link';
 import { CalendarDays, Clock, Lock, CircleDot, Ticket } from 'lucide-react';
 import { getSession, requireOnboarded } from '@/lib/session';
@@ -28,6 +29,27 @@ function formatKickoff(utc: string) {
 
 type MatchRow = Match & { home_team: Team; away_team: Team };
 
+// The full fixture list is identical for every manager, so cache it briefly and
+// share it across requests. On a busy match day this turns a per-load full-table
+// read (every match + both team joins) into roughly one read per minute, which is
+// the bulk of this page's Supabase egress. Scores can lag up to a minute on the
+// schedule view, which is fine; the live recap on /today is unaffected.
+const getFixtureMatches = unstable_cache(
+  async (): Promise<MatchRow[]> => {
+    const { data } = await db
+      .from('matches')
+      .select('*, home_team:home_team_id(*), away_team:away_team_id(*)')
+      // Stable secondary sort so same-kickoff matches list in a fixed order, matching
+      // the Today slate and the match-page stepper.
+      .neq('status', 'void')
+      .order('kickoff_at', { ascending: true })
+      .order('id', { ascending: true });
+    return (data ?? []) as MatchRow[];
+  },
+  ['fixtures-matches'],
+  { revalidate: 60, tags: ['matches'] },
+);
+
 export default async function FixturesPage() {
   const session = await getSession();
   if (!session.managerId) redirect('/join');
@@ -46,16 +68,7 @@ export default async function FixturesPage() {
   // everything else is read-only schedule info.
   const isToday = (m: MatchRow) => slateKeyOf(m.kickoff_at, rollover) === slateKey;
 
-  const { data: matchData } = await db
-    .from('matches')
-    .select('*, home_team:home_team_id(*), away_team:away_team_id(*)')
-    .neq('status', 'void')
-    // Stable secondary sort so same-kickoff matches list in a fixed order, matching
-    // the Today slate and the match-page stepper.
-    .order('kickoff_at', { ascending: true })
-    .order('id', { ascending: true });
-
-  const matches = (matchData ?? []) as MatchRow[];
+  const matches = await getFixtureMatches();
 
   const matchIds = matches.map(m => m.id);
   const { data: betData } = matchIds.length

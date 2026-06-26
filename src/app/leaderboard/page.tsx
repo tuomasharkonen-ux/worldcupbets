@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { unstable_cache } from 'next/cache';
 import { Trophy, Crown, Medal, Coins, Sparkles } from 'lucide-react';
 import { getSession, requireOnboarded } from '@/lib/session';
 import { db } from '@/lib/supabase';
@@ -20,40 +21,54 @@ function lastName(full: string): string {
   return parts[parts.length - 1] || full;
 }
 
+type LeaderboardRow = Pick<
+  Manager,
+  'id' | 'display_name' | 'glory' | 'coins' | 'favorite_team_id' | 'favorite_footballer_id'
+>;
+
+// The standings are the same for everyone (only the "you" highlight is per-viewer,
+// derived from the session), so cache the read and share it across requests. On a
+// post-result rush this collapses many full-table reads into roughly one per minute.
+// A minute of staleness is fine here — the authoritative recap lives on /today.
+const getLeaderboardData = unstable_cache(
+  async () => {
+    const { data: managers } = await db
+      .from('managers')
+      .select('id, display_name, glory, coins, favorite_team_id, favorite_footballer_id')
+      .order('glory', { ascending: false });
+    const rows = (managers ?? []) as LeaderboardRow[];
+
+    // Batch-resolve the favourite team + player for every row (avoids an N+1 per manager).
+    const teamIds = [...new Set(rows.map(r => r.favorite_team_id).filter(Boolean))] as string[];
+    const playerIds = [...new Set(rows.map(r => r.favorite_footballer_id).filter(Boolean))] as string[];
+
+    const [{ data: teams }, { data: players }] = await Promise.all([
+      teamIds.length
+        ? db.from('teams').select('id, name, country_code').in('id', teamIds)
+        : Promise.resolve({ data: [] }),
+      playerIds.length
+        ? db.from('footballers').select('id, name').in('id', playerIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    return {
+      rows,
+      teams: (teams ?? []) as { id: string; name: string; country_code: string }[],
+      players: (players ?? []) as { id: string; name: string }[],
+    };
+  },
+  ['leaderboard-standings'],
+  { revalidate: 60, tags: ['managers'] },
+);
+
 export default async function LeaderboardPage() {
   const session = await getSession();
   if (!session.managerId) redirect('/join');
   await requireOnboarded(session.managerId);
 
-  const { data: managers } = await db
-    .from('managers')
-    .select('id, display_name, glory, coins, favorite_team_id, favorite_footballer_id')
-    .order('glory', { ascending: false });
-
-  const rows = (managers ?? []) as Pick<
-    Manager,
-    'id' | 'display_name' | 'glory' | 'coins' | 'favorite_team_id' | 'favorite_footballer_id'
-  >[];
-
-  // Batch-resolve the favourite team + player for every row (avoids an N+1 per manager).
-  const teamIds = [...new Set(rows.map(r => r.favorite_team_id).filter(Boolean))] as string[];
-  const playerIds = [...new Set(rows.map(r => r.favorite_footballer_id).filter(Boolean))] as string[];
-
-  const [{ data: teams }, { data: players }] = await Promise.all([
-    teamIds.length
-      ? db.from('teams').select('id, name, country_code').in('id', teamIds)
-      : Promise.resolve({ data: [] }),
-    playerIds.length
-      ? db.from('footballers').select('id, name').in('id', playerIds)
-      : Promise.resolve({ data: [] }),
-  ]);
-
-  const teamById = new Map(
-    ((teams ?? []) as { id: string; name: string; country_code: string }[]).map(t => [t.id, t]),
-  );
-  const playerById = new Map(
-    ((players ?? []) as { id: string; name: string }[]).map(p => [p.id, p]),
-  );
+  const { rows, teams, players } = await getLeaderboardData();
+  const teamById = new Map(teams.map(t => [t.id, t]));
+  const playerById = new Map(players.map(p => [p.id, p]));
 
   return (
     <>
