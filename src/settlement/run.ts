@@ -589,90 +589,151 @@ export async function backfillSettledBets(dryRun = false): Promise<BackfillResul
   const affectedManagers = new Set<string>();
 
   for (const match of matches) {
-    const { data: betRows } = await db.from('bets').select('*').eq('match_id', match.id);
-    const bets = (betRows ?? []) as Bet[];
-    if (bets.length === 0) continue;
-
-    // Props need the goal/card/lineup feed; score-derived bets read only the final score
-    // (already on the match row), so only pay for the feed when props are present. Read
-    // the live feed (read-only) so even a dry run previews what a real run would settle;
-    // if it now carries scorers, evaluate against those and persist them on a real run,
-    // otherwise fall back to whatever events we already have. A feed outage must not block
-    // re-evaluating this match's score-derived bets, so on error we fall back too.
-    const hasProps = bets.some(b => PROP_BET_TYPES.includes(b.bet_type));
-    let evs: MatchEvent[] = [];
-    let appearances: string[] = [];
-    if (hasProps) {
-      try {
-        const fetched = await fetchMatchEvents(match);
-        if (fetched.hasGoals) {
-          evs = fetched.eventRows.map((r, i) => ({ id: `preview-${i}`, ...r })) as MatchEvent[];
-          appearances = fetched.appeared;
-          if (!dryRun) await ingestMatchData(match); // persist the freshly-fetched events
-        } else {
-          ({ evs, appearances } = await loadStoredEvents(match.id));
-        }
-      } catch (err) {
-        console.error(`[backfill] feed fetch for match ${match.id} failed (using stored events):`, err);
-        ({ evs, appearances } = await loadStoredEvents(match.id));
-      }
-      if (evs.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal')) {
-        result.matchesWithScorers++;
-      }
-    }
-
-    for (const bet of bets) {
-      const update = settleBet(bet, {
-        match,
-        bets: [],
-        config: league.config,
-        events: evs,
-        appearances: appearances.length > 0 ? appearances : undefined,
-      });
-      result.betsReevaluated++;
-
-      const changed =
-        update.status !== bet.status || update.pointsAwarded !== (bet.glory_awarded ?? 0);
-      if (!changed) continue;
-
+    const r = await reconcileMatchBets(match, league, dryRun);
+    result.betsReevaluated += r.betsReevaluated;
+    if (r.hadScorers) result.matchesWithScorers++;
+    for (const c of r.changes) {
       result.betsChanged++;
-      if (update.status === 'won') result.newlyWon++;
-      result.changes.push({
-        betId: bet.id,
-        managerId: bet.manager_id,
-        betType: bet.bet_type,
-        from: bet.status,
-        to: update.status,
-        points: update.pointsAwarded,
-      });
-      if (dryRun) continue;
-
-      // Reconcile this bet's ledger rows (bet-scoped only; stake_spend is match-scoped
-      // and stays put), then write the new bet status.
-      await db.from('ledger').delete().eq('ref_type', 'bet').eq('ref_id', bet.id);
-      const ledgerRows: { manager_id: string; currency: string; amount: number; reason: string; ref_type: string; ref_id: string }[] = [];
-      if (update.status === 'won') {
-        if (update.pointsAwarded > 0)
-          ledgerRows.push({ manager_id: bet.manager_id, currency: 'glory', amount: update.pointsAwarded, reason: 'bet_win', ref_type: 'bet', ref_id: bet.id });
-        if (update.coinsAwarded > 0)
-          ledgerRows.push({ manager_id: bet.manager_id, currency: 'coins', amount: update.coinsAwarded, reason: 'bet_coin', ref_type: 'bet', ref_id: bet.id });
-      }
-      if (ledgerRows.length > 0) {
-        const { error } = await db
-          .from('ledger')
-          .upsert(ledgerRows, { onConflict: 'reason,ref_type,ref_id,manager_id', ignoreDuplicates: true });
-        if (error) throw error;
-      }
-      await db
-        .from('bets')
-        .update({ status: update.status, glory_awarded: update.pointsAwarded })
-        .eq('id', bet.id);
-      affectedManagers.add(bet.manager_id);
+      if (c.to === 'won') result.newlyWon++;
+      result.changes.push(c);
     }
+    r.affectedManagers.forEach(m => affectedManagers.add(m));
   }
 
   if (!dryRun && affectedManagers.size > 0) await recomputeBalances([...affectedManagers]);
   return result;
+}
+
+interface ReconcileMatchResult {
+  betsReevaluated: number;
+  hadScorers: boolean;
+  changes: BackfillResult['changes'];
+  affectedManagers: string[];
+}
+
+// Re-grade every bet on ONE already-settled match against its current stored score +
+// events, reconciling the ledger in BOTH directions: delete the bet's prior win/coin
+// rows and re-insert the new result, so a flip works lost→won AND won→lost. (The normal
+// settleMatch path is insert-only/idempotent-forward — it can add a missing win but can't
+// reverse a stale one, which is why a plain "clear settled_at and re-settle" would leave
+// a phantom win in the ledger.) Shared by the bulk backfillSettledBets sweep and the
+// fixtures-sync score-correction trigger (reSettleCorrectedMatch). Does NOT recompute
+// cached balances — callers batch that across every match they touch. Pass dryRun to
+// preview without writing.
+async function reconcileMatchBets(
+  match: Match,
+  league: League,
+  dryRun: boolean,
+): Promise<ReconcileMatchResult> {
+  const out: ReconcileMatchResult = {
+    betsReevaluated: 0,
+    hadScorers: false,
+    changes: [],
+    affectedManagers: [],
+  };
+
+  const { data: betRows } = await db.from('bets').select('*').eq('match_id', match.id);
+  const bets = (betRows ?? []) as Bet[];
+  if (bets.length === 0) return out;
+
+  // Props need the goal/card/lineup feed; score-derived bets read only the final score
+  // (already on the match row), so only pay for the feed when props are present. Read
+  // the live feed (read-only) so even a dry run previews what a real run would settle;
+  // if it now carries scorers, evaluate against those and persist them on a real run,
+  // otherwise fall back to whatever events we already have. A feed outage must not block
+  // re-evaluating this match's score-derived bets, so on error we fall back too.
+  const hasProps = bets.some(b => PROP_BET_TYPES.includes(b.bet_type));
+  let evs: MatchEvent[] = [];
+  let appearances: string[] = [];
+  if (hasProps) {
+    try {
+      const fetched = await fetchMatchEvents(match);
+      if (fetched.hasGoals) {
+        evs = fetched.eventRows.map((r, i) => ({ id: `preview-${i}`, ...r })) as MatchEvent[];
+        appearances = fetched.appeared;
+        if (!dryRun) await ingestMatchData(match); // persist the freshly-fetched events
+      } else {
+        ({ evs, appearances } = await loadStoredEvents(match.id));
+      }
+    } catch (err) {
+      console.error(`[reconcile] feed fetch for match ${match.id} failed (using stored events):`, err);
+      ({ evs, appearances } = await loadStoredEvents(match.id));
+    }
+    out.hadScorers = evs.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
+  }
+
+  for (const bet of bets) {
+    const update = settleBet(bet, {
+      match,
+      bets: [],
+      config: league.config,
+      events: evs,
+      appearances: appearances.length > 0 ? appearances : undefined,
+    });
+    out.betsReevaluated++;
+
+    const changed =
+      update.status !== bet.status || update.pointsAwarded !== (bet.glory_awarded ?? 0);
+    if (!changed) continue;
+
+    out.changes.push({
+      betId: bet.id,
+      managerId: bet.manager_id,
+      betType: bet.bet_type,
+      from: bet.status,
+      to: update.status,
+      points: update.pointsAwarded,
+    });
+    if (dryRun) continue;
+
+    // Reconcile this bet's ledger rows (bet-scoped only; stake_spend is match-scoped
+    // and stays put), then write the new bet status.
+    await db.from('ledger').delete().eq('ref_type', 'bet').eq('ref_id', bet.id);
+    const ledgerRows: { manager_id: string; currency: string; amount: number; reason: string; ref_type: string; ref_id: string }[] = [];
+    if (update.status === 'won') {
+      if (update.pointsAwarded > 0)
+        ledgerRows.push({ manager_id: bet.manager_id, currency: 'glory', amount: update.pointsAwarded, reason: 'bet_win', ref_type: 'bet', ref_id: bet.id });
+      if (update.coinsAwarded > 0)
+        ledgerRows.push({ manager_id: bet.manager_id, currency: 'coins', amount: update.coinsAwarded, reason: 'bet_coin', ref_type: 'bet', ref_id: bet.id });
+    }
+    if (ledgerRows.length > 0) {
+      const { error } = await db
+        .from('ledger')
+        .upsert(ledgerRows, { onConflict: 'reason,ref_type,ref_id,manager_id', ignoreDuplicates: true });
+      if (error) throw error;
+    }
+    await db
+      .from('bets')
+      .update({ status: update.status, glory_awarded: update.pointsAwarded })
+      .eq('id', bet.id);
+    out.affectedManagers.push(bet.manager_id);
+  }
+
+  return out;
+}
+
+// Public entry for the fixtures-sync score-correction trigger. When the daily sync
+// overwrites the score/status of a match that was ALREADY settled, its bets were graded
+// against the old score and the normal settle path won't revisit them (it only picks up
+// settled_at IS NULL, and syncStartedMatchStatuses stops refreshing a match once it's
+// finished). Re-grade just this one match and reconcile its ledger so a post-settlement
+// correction — a late/disallowed goal, or a feed that briefly published a wrong score
+// then fixed it — reaches the bets. Caller fires this only on a real change, so it adds
+// no recurring reads. Returns the bets it changed (empty when nothing flipped).
+export async function reSettleCorrectedMatch(matchId: string): Promise<BackfillResult['changes']> {
+  const { data: league, error: leagueErr } = await db
+    .from('league')
+    .select('*')
+    .eq('id', 1)
+    .single<League>();
+  if (leagueErr || !league) throw new Error('Could not load league config');
+
+  const { data: match } = await db.from('matches').select('*').eq('id', matchId).single<Match>();
+  if (!match || !match.settled_at) return []; // unsettled → the normal settle path owns it
+
+  const r = await reconcileMatchBets(match, league, false);
+  if (r.affectedManagers.length > 0) await recomputeBalances([...new Set(r.affectedManagers)]);
+  return r.changes;
 }
 
 // Pull goals/cards/lineups from football-data.org and (re)write match_events +

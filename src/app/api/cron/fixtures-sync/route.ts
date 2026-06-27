@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/cron';
 import { db } from '@/lib/supabase';
 import { mapFdStatus } from '@/lib/football-data';
+import { reSettleCorrectedMatch } from '@/settlement/run';
 
 // Vercel Cron: daily at 06:00 UTC — pulls fixtures + teams from football-data.org
 export async function GET(req: NextRequest) {
@@ -26,7 +27,7 @@ export async function GET(req: NextRequest) {
 const FD_BASE = 'https://api.football-data.org/v4';
 const WC_COMPETITION = 'WC'; // football-data.org competition code for World Cup 2026
 
-async function syncFixtures(token: string): Promise<{ matches: number; teams: number }> {
+async function syncFixtures(token: string): Promise<{ matches: number; teams: number; corrected: number }> {
   const headers = { 'X-Auth-Token': token };
 
   // --- teams ---
@@ -56,6 +57,7 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
   const matchesData = await matchesRes.json();
 
   let matchesUpserted = 0;
+  let corrected = 0;
   for (const m of matchesData.matches ?? []) {
     // Look up internal team UUIDs by fd_team_id
     const { data: homeTeam } = await db
@@ -73,6 +75,31 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
 
     const stage = mapStage(m.stage);
     const status = mapFdStatus(m.status);
+    const newHome = m.score?.fullTime?.home ?? null;
+    const newAway = m.score?.fullTime?.away ?? null;
+
+    // Post-settlement score-correction detection. This upsert is the only writer that
+    // touches a match's score once it's finished (syncStartedMatchStatuses skips finished
+    // rows), so if it changes the score/status of an ALREADY-settled match, the bets were
+    // graded against the old score and nothing else will revisit them. Capture the prior
+    // row so we can re-grade just this match afterward. Only a finished match can carry
+    // settled bets, so we skip this read otherwise — the daily sync's egress stays flat.
+    let priorSettled: { id: string; home_score: number | null; away_score: number | null; status: string } | null = null;
+    if (status === 'finished') {
+      const { data: existing } = await db
+        .from('matches')
+        .select('id, home_score, away_score, status, settled_at')
+        .eq('fd_match_id', m.id)
+        .maybeSingle();
+      if (existing?.settled_at) {
+        priorSettled = {
+          id: existing.id as string,
+          home_score: existing.home_score as number | null,
+          away_score: existing.away_score as number | null,
+          status: existing.status as string,
+        };
+      }
+    }
 
     // The true winner — needed for the favorite-team ladder, since a knockout decided
     // on penalties leaves fullTime level. score.winner reflects the actual result
@@ -93,8 +120,8 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
         away_team_id: awayTeam.id,
         kickoff_at: m.utcDate,
         status,
-        home_score: m.score?.fullTime?.home ?? null,
-        away_score: m.score?.fullTime?.away ?? null,
+        home_score: newHome,
+        away_score: newAway,
         winner_team_id: winnerTeamId,
         glory_multiplier: pointsMultiplier(stage),
       },
@@ -102,9 +129,33 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
     );
     if (error) throw error;
     matchesUpserted++;
+
+    // A correction landed on an already-settled match → re-grade its bets and reconcile
+    // the ledger so the fix reaches managers' Points. Best-effort: a re-settle failure
+    // must not abort the rest of the sync.
+    if (
+      priorSettled &&
+      (priorSettled.home_score !== newHome ||
+        priorSettled.away_score !== newAway ||
+        priorSettled.status !== status)
+    ) {
+      try {
+        const changes = await reSettleCorrectedMatch(priorSettled.id);
+        if (changes.length > 0) {
+          corrected += changes.length;
+          console.log(
+            `[fixtures-sync] match ${priorSettled.id} corrected ` +
+              `${priorSettled.home_score}-${priorSettled.away_score} → ${newHome}-${newAway}; ` +
+              `re-graded ${changes.length} bet(s)`,
+          );
+        }
+      } catch (err) {
+        console.error(`[fixtures-sync] re-settle of corrected match ${priorSettled.id} failed:`, err);
+      }
+    }
   }
 
-  return { matches: matchesUpserted, teams: teamsUpserted };
+  return { matches: matchesUpserted, teams: teamsUpserted, corrected };
 }
 
 function mapStage(fdStage: string): string {
