@@ -573,7 +573,14 @@ export interface BackfillResult {
 // it safe to run repeatedly and in any direction (lost→won, won→void, …). The
 // match-scoped stake_spend and the day-close slate grants are untouched. Pass dryRun to
 // preview the changes without writing.
-export async function backfillSettledBets(dryRun = false): Promise<BackfillResult> {
+//
+// `onlyUndecided` restricts the re-grade to bets currently in a non-final state
+// (`void`/`pending`) — it never overturns an already-decided win/loss. Use it when a
+// data source is added after the fact (e.g. a match newly mapped to API-Football, so its
+// scorer props can finally settle off real goals instead of voiding): it fixes those
+// refunded/undecided props without retroactively re-pointing historical bets that were
+// settled — and possibly grandfathered — under earlier scoring rules.
+export async function backfillSettledBets(dryRun = false, onlyUndecided = false): Promise<BackfillResult> {
   const { data: league, error: leagueErr } = await db
     .from('league')
     .select('*')
@@ -603,7 +610,7 @@ export async function backfillSettledBets(dryRun = false): Promise<BackfillResul
   const affectedManagers = new Set<string>();
 
   for (const match of matches) {
-    const r = await reconcileMatchBets(match, league, dryRun);
+    const r = await reconcileMatchBets(match, league, dryRun, onlyUndecided);
     result.betsReevaluated += r.betsReevaluated;
     if (r.hadScorers) result.matchesWithScorers++;
     for (const c of r.changes) {
@@ -634,10 +641,15 @@ interface ReconcileMatchResult {
 // fixtures-sync score-correction trigger (reSettleCorrectedMatch). Does NOT recompute
 // cached balances — callers batch that across every match they touch. Pass dryRun to
 // preview without writing.
+//
+// `onlyUndecided` limits the re-grade to bets currently `void`/`pending` and skips the
+// match entirely (no feed fetch) when none qualify — so a newly-added data source can
+// settle previously-voided props without disturbing already-decided wins/losses.
 async function reconcileMatchBets(
   match: Match,
   league: League,
   dryRun: boolean,
+  onlyUndecided = false,
 ): Promise<ReconcileMatchResult> {
   const out: ReconcileMatchResult = {
     betsReevaluated: 0,
@@ -647,7 +659,8 @@ async function reconcileMatchBets(
   };
 
   const { data: betRows } = await db.from('bets').select('*').eq('match_id', match.id);
-  const bets = (betRows ?? []) as Bet[];
+  let bets = (betRows ?? []) as Bet[];
+  if (onlyUndecided) bets = bets.filter(b => b.status === 'void' || b.status === 'pending');
   if (bets.length === 0) return out;
 
   // Props need the goal/card/lineup feed; score-derived bets read only the final score
