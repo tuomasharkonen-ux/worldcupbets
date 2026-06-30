@@ -667,15 +667,30 @@ async function buildRecap(
 
     // The milestone keys a team can claim from its matches *on this slate* — reach-rungs
     // from each stage played, plus champion/third when won here.
+    //
+    // r16/qf/sf's "reach" milestone only becomes claimable once the next round's fixture
+    // exists (REACH_RUNGS in settlement/favorites.ts fires on the fixture existing, not on
+    // winning) — and that fixture isn't assigned until the bracket updates after this win,
+    // typically the next fixtures-sync. Without WIN_UNLOCKS, the recap would only ever show
+    // e.g. "reached r16" on the slate of the r16 match itself, days after the team actually
+    // got there — so a manager would never see "Norway beat Ivory Coast → +Points for
+    // reaching R16" the morning after the win, only whenever R16 kicks off. Attributing it
+    // here, to the win, surfaces it as soon as the ledger amount exists (recap is built live
+    // on every render until dismissed, so an early check before the bracket syncs just won't
+    // show it yet; a later one will).
+    const WIN_UNLOCKS: Record<string, string> = { r32: 'r16', r16: 'qf', qf: 'sf', sf: 'final' };
     const milestoneKeysFor = (teamId: string): string[] => {
-      const keys: string[] = [];
+      const keys = new Set<string>();
       for (const m of members) {
         if (m.home_team_id !== teamId && m.away_team_id !== teamId) continue;
-        if (STAGE_RUNG[m.stage]) keys.push(STAGE_RUNG[m.stage]);
-        if (m.stage === 'final' && m.status === 'finished' && m.winner_team_id === teamId) keys.push('champion');
-        if (m.stage === 'third' && m.status === 'finished' && m.winner_team_id === teamId) keys.push('third');
+        if (STAGE_RUNG[m.stage]) keys.add(STAGE_RUNG[m.stage]);
+        if (m.stage === 'final' && m.status === 'finished' && m.winner_team_id === teamId) keys.add('champion');
+        if (m.stage === 'third' && m.status === 'finished' && m.winner_team_id === teamId) keys.add('third');
+        if (m.status === 'finished' && m.winner_team_id === teamId && WIN_UNLOCKS[m.stage]) {
+          keys.add(WIN_UNLOCKS[m.stage]);
+        }
       }
-      return keys;
+      return [...keys];
     };
 
     for (const mgr of allManagers) {
