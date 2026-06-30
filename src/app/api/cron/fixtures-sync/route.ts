@@ -73,7 +73,7 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
 
     if (!homeTeam || !awayTeam) continue;
 
-    const stage = mapStage(m.stage);
+    const stage = resolveStage(m);
     const status = mapFdStatus(m.status);
     // Bets settle on the 90-minute result, so store regulation time — never football-data's
     // `fullTime`, which folds in extra time + the shootout tally for knockouts (see regulationScore).
@@ -173,6 +173,45 @@ function mapStage(fdStage: string): string {
     FINAL: 'final',
   };
   return map[fdStage] ?? 'group';
+}
+
+// football-data's `stage` field for the 48-team WC2026 knockout rounds doesn't reliably
+// match the `ROUND_OF_32` etc. literals above — confirmed empirically: the 16 round-of-32
+// fixtures (2026-06-28 to 2026-07-03, kickoff dates only, no `group`) all landed on the
+// `?? 'group'` fallback above and silently passed as group-stage matches, which meant the
+// favorite-team "out of group" milestone (settlement/favorites.ts) never fired for anyone.
+// The 2026 WC schedule's stage windows are fixed and published months ahead — only the teams
+// in each match are unknown beforehand — so for any match with no `group` (i.e. a knockout
+// fixture), derive the stage from its kickoff date instead of trusting the API's stage string.
+const KNOCKOUT_STAGE_BOUNDARIES: [string, string][] = [
+  ['2026-06-28T00:00:00Z', 'r32'],
+  ['2026-07-04T00:00:00Z', 'r16'],
+  ['2026-07-09T00:00:00Z', 'qf'],
+  ['2026-07-14T00:00:00Z', 'sf'],
+  ['2026-07-18T00:00:00Z', 'third'],
+  ['2026-07-19T00:00:00Z', 'final'],
+];
+
+function knockoutStageForDate(utcDate: string): string {
+  const t = new Date(utcDate).getTime();
+  let stage = 'r32';
+  for (const [boundary, s] of KNOCKOUT_STAGE_BOUNDARIES) {
+    if (t >= new Date(boundary).getTime()) stage = s;
+  }
+  return stage;
+}
+
+function resolveStage(m: { stage: string; group?: string | null; utcDate: string }): string {
+  if (m.group) return 'group';
+  const dateStage = knockoutStageForDate(m.utcDate);
+  const apiStage = mapStage(m.stage);
+  if (apiStage !== 'group' && apiStage !== dateStage) {
+    console.warn(
+      `[fixtures-sync] stage mismatch at ${m.utcDate}: football-data stage='${m.stage}' ` +
+        `mapped to '${apiStage}', but the fixed schedule says '${dateStage}' — using the schedule.`,
+    );
+  }
+  return dateStage;
 }
 
 function pointsMultiplier(stage: string): number {
