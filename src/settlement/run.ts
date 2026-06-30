@@ -424,24 +424,35 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
     .eq('match_id', match.id);
   const appearances = (appRows ?? []).map(a => a.footballer_id as string);
 
-  // Defer if the goal feed hasn't landed. football-data's free tier can report the
+  // Defer if the goal feed hasn't landed. The granular feed (API-Football) can report the
   // final score before the scorers, leaving goals on the board but zero goal events —
   // settling now would void deserved scorer props (and silently skip favorite-player
   // goal bonuses). Hold off while we're inside a grace window so a later run (the cron
   // or the on-read nudge) re-ingests and pays out the win once the scorers arrive. Past
   // the window we settle anyway and the engine voids any still-missing scorer props, so
   // a permanently-incomplete feed can never block the slate's recap forever.
+  //
+  // Only matches mapped to API-Football (af_fixture_id set) have a scorer source at all;
+  // a football-data-only match (af_fixture_id null) will NEVER get goal events, so there
+  // is nothing to wait for. Deferring those is worse than useless: the grace window (8h
+  // from kickoff) outlasts the morning cron's last run (10:00 Helsinki / 07:00 UTC) for
+  // any post-~23:00-UTC kickoff, so no cron run ever exits the wait — the match hangs
+  // unsettled until grace expires and some on-read nudge happens to fire hours later,
+  // silently blocking the whole slate's recap for everyone in the meantime. So we only
+  // defer when a scorer source actually exists; otherwise settle now and let the engine
+  // void the (unwinnable) scorer props.
   const totalGoals = (match.home_score ?? 0) + (match.away_score ?? 0);
   const goalFeedLanded = (events ?? []).some(
     e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal',
   );
+  const hasScorerSource = match.af_fixture_id != null;
   const needsScorers =
     pendingBets.some(b => SCORER_FEED_BET_TYPES.includes(b.bet_type)) || favPlayers.length > 0;
   const SCORER_GRACE_MS = 8 * 60 * 60 * 1000; // ~kickoff + 8h: well past full time
   const withinGrace = Date.now() - new Date(match.kickoff_at).getTime() < SCORER_GRACE_MS;
-  if (needsScorers && totalGoals > 0 && !goalFeedLanded && withinGrace) {
+  if (needsScorers && hasScorerSource && totalGoals > 0 && !goalFeedLanded && withinGrace) {
     console.log(
-      `[settle] match ${match.id}: ${match.home_score}-${match.away_score} but football-data has no scorers yet — deferring`,
+      `[settle] match ${match.id}: ${match.home_score}-${match.away_score} but API-Football has no scorers yet — deferring`,
     );
     return false; // not settled; a later run retries once the scorer feed catches up
   }
