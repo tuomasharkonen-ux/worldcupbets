@@ -70,14 +70,37 @@ export interface FdMatchDetail {
   substitutions?: FdSubstitution[];
 }
 
+// football-data's `score` block. `fullTime` is the *aggregate* result for a knockout
+// that goes the distance — it folds in extra-time goals and the penalty-shootout tally
+// (a 1-1 decided on penalties 3-4 is reported as fullTime 4-5). `regularTime` holds the
+// 90-minute score and is present only when `duration` isn't REGULAR; for a 90-minute
+// match it's absent and `fullTime` already is the regulation score. See regulationScore.
+export interface FdScore {
+  winner?: 'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' | null;
+  duration?: 'REGULAR' | 'EXTRA_TIME' | 'PENALTY_SHOOTOUT' | string;
+  fullTime?: { home: number | null; away: number | null };
+  regularTime?: { home: number | null; away: number | null };
+}
+
 // One row of GET /competitions/{code}/matches — just the fields status sync needs.
 export interface FdMatchSummary {
   id: number;
   status: string;
   utcDate: string;
-  score?: {
-    winner?: 'HOME_TEAM' | 'AWAY_TEAM' | 'DRAW' | null;
-    fullTime?: { home: number | null; away: number | null };
+  score?: FdScore;
+}
+
+// The 90-minute (regulation) score. Bets settle on the result at full time EXCLUDING
+// extra time and the shootout (GAME_DESIGN §"Penalty shootouts" — the league fixed this:
+// a knockout level after 90 is a draw for Outcome/Exact, the shootout only decides
+// `winner_team_id`). Read `regularTime` when football-data provides it (knockouts that
+// ran past 90); otherwise `fullTime` is already the 90-minute score. Single source of
+// truth so the settle sweep and the daily fixtures-sync can never disagree on what a
+// score "is".
+export function regulationScore(score?: FdScore): { home: number | null; away: number | null } {
+  return {
+    home: score?.regularTime?.home ?? score?.fullTime?.home ?? null,
+    away: score?.regularTime?.away ?? score?.fullTime?.away ?? null,
   };
 }
 

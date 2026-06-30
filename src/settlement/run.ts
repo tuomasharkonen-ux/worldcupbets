@@ -1,6 +1,6 @@
 import { after } from 'next/server';
 import { db } from '@/lib/supabase';
-import { getCompetitionMatches, getMatchDetail, mapFdStatus } from '@/lib/football-data';
+import { getCompetitionMatches, getMatchDetail, mapFdStatus, regulationScore } from '@/lib/football-data';
 import { getFixtureEvents, getFixtureLineups, type AfEvent } from '@/lib/api-football';
 import {
   settle,
@@ -129,18 +129,21 @@ async function syncStartedMatchStatuses(): Promise<number> {
     const status = mapFdStatus(fd.status);
     // Skip only when the feed still says not-started; live rows re-write to refresh scores.
     if (status === 'scheduled' && row.status === 'scheduled') continue;
+    // winner_team_id tracks the TRUE result (incl. extra time / shootout) for the
+    // favorite-team ladder; the stored score is the 90-minute result bets settle on.
     const winnerTeamId =
       fd.score?.winner === 'HOME_TEAM'
         ? row.home_team_id
         : fd.score?.winner === 'AWAY_TEAM'
           ? row.away_team_id
           : null;
+    const reg = regulationScore(fd.score);
     const { error: updErr } = await db
       .from('matches')
       .update({
         status,
-        home_score: fd.score?.fullTime?.home ?? null,
-        away_score: fd.score?.fullTime?.away ?? null,
+        home_score: reg.home,
+        away_score: reg.away,
         winner_team_id: winnerTeamId,
       })
       .eq('id', row.id);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronSecret } from '@/lib/cron';
 import { db } from '@/lib/supabase';
-import { mapFdStatus } from '@/lib/football-data';
+import { mapFdStatus, regulationScore } from '@/lib/football-data';
 import { reSettleCorrectedMatch } from '@/settlement/run';
 
 // Vercel Cron: daily at 06:00 UTC — pulls fixtures + teams from football-data.org
@@ -75,8 +75,11 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
 
     const stage = mapStage(m.stage);
     const status = mapFdStatus(m.status);
-    const newHome = m.score?.fullTime?.home ?? null;
-    const newAway = m.score?.fullTime?.away ?? null;
+    // Bets settle on the 90-minute result, so store regulation time — never football-data's
+    // `fullTime`, which folds in extra time + the shootout tally for knockouts (see regulationScore).
+    const reg = regulationScore(m.score);
+    const newHome = reg.home;
+    const newAway = reg.away;
 
     // Post-settlement score-correction detection. This upsert is the only writer that
     // touches a match's score once it's finished (syncStartedMatchStatuses skips finished
@@ -101,9 +104,10 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
       }
     }
 
-    // The true winner — needed for the favorite-team ladder, since a knockout decided
-    // on penalties leaves fullTime level. score.winner reflects the actual result
-    // (incl. extra time / shootout); DRAW or unfinished → null.
+    // The true winner — needed for the favorite-team ladder. The stored score is the
+    // 90-minute result (a draw for a knockout that went to penalties), so winner can't be
+    // derived from it; score.winner reflects the actual result (incl. extra time /
+    // shootout). DRAW or unfinished → null.
     const winnerTeamId =
       m.score?.winner === 'HOME_TEAM'
         ? homeTeam.id
