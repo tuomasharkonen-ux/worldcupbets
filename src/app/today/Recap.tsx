@@ -532,44 +532,70 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
           );
         })}
 
-        {/* M+1 — points odometer */}
-        {shown(M + 1) && (
-          <div className={`glass-strong relative overflow-hidden rounded-2xl px-4 py-5 text-center ${justNow(M + 1) ? 'animate-rise-in' : ''}`}>
-            {justNow(M + 1) && data.pointsGained > 0 && <Confetti tier="legendary" />}
-            <p className="flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-subtle">
-              <Sparkles className="size-3.5 text-points" aria-hidden />
-              Points won
-            </p>
-            <p className="text-glow mt-1 font-mono text-4xl font-bold tabular-nums text-points">
-              +{pointsValue}
-            </p>
-            {data.favoriteItems.length > 0 && (
-              <ul className="mt-4 space-y-1.5 border-t border-border pt-3 text-left">
-                {data.favoriteItems.map((it, i) => (
-                  <li key={i} className="flex items-center gap-2 text-sm">
-                    {it.kind === 'player' ? (
-                      <Star className="size-4 shrink-0 text-points" aria-hidden />
-                    ) : (
-                      <Shield className="size-4 shrink-0 text-primary-bright" aria-hidden />
-                    )}
-                    <span className="min-w-0 flex-1 truncate text-muted">
-                      <span className="font-semibold text-foreground">{it.label}</span>
-                      <span className="text-subtle"> · {it.detail}</span>
-                    </span>
-                    <span
-                      className={`shrink-0 text-right font-mono text-sm font-bold tabular-nums ${
-                        it.points >= 0 ? 'text-points' : 'text-danger'
-                      }`}
-                    >
-                      {it.points >= 0 ? `+${it.points}` : it.points}
-                      <span className="ml-0.5 text-[0.65rem] font-medium opacity-80">pts</span>
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        )}
+        {/* M+1 — points odometer. A favorite-team milestone (kind 'team' — the ladder
+            rungs/champion/third) gets the same legendary gold treatment as a 3/3 match
+            slip (tier-legendary glow + shine), so the moment reads as a comparable jackpot. */}
+        {shown(M + 1) && (() => {
+          const hasMilestone = data.favoriteItems.some(it => it.kind === 'team');
+          return (
+            <div
+              className={`glass-strong relative overflow-hidden rounded-2xl px-4 py-5 text-center transition-colors duration-500 ${hasMilestone ? 'tier-legendary' : ''} ${justNow(M + 1) ? 'animate-rise-in' : ''}`}
+            >
+              {hasMilestone && <span className="tier-shine legendary" aria-hidden />}
+              {justNow(M + 1) && data.pointsGained > 0 && <Confetti tier="legendary" />}
+              <p className="relative flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-subtle">
+                <Sparkles className="size-3.5 text-points" aria-hidden />
+                Points won
+              </p>
+              <p className="text-glow relative mt-1 font-mono text-4xl font-bold tabular-nums text-points">
+                +{pointsValue}
+              </p>
+              {data.favoriteItems.length > 0 && (
+                <ul className="relative mt-4 space-y-1.5 border-t border-border pt-3 text-left">
+                  {data.favoriteItems.map((it, i) => {
+                    const milestone = it.kind === 'team';
+                    return (
+                      <li
+                        key={i}
+                        className={`flex items-center gap-2 text-sm ${
+                          milestone ? 'rounded-lg bg-[color-mix(in_oklab,var(--color-primary-bright)_14%,transparent)] px-2 py-1.5' : ''
+                        }`}
+                      >
+                        {it.kind === 'player' ? (
+                          <Star className="size-4 shrink-0 text-points" aria-hidden />
+                        ) : (
+                          <Shield className="size-4 shrink-0 text-primary-bright" aria-hidden />
+                        )}
+                        <span className="min-w-0 flex-1 truncate text-muted">
+                          <span
+                            className={
+                              milestone
+                                ? 'text-glow font-display font-bold uppercase tracking-wide text-primary-bright'
+                                : 'font-semibold text-foreground'
+                            }
+                          >
+                            {it.label}
+                          </span>
+                          <span className={milestone ? 'text-foreground/80' : 'text-subtle'}> · {it.detail}</span>
+                        </span>
+                        <span
+                          className={`shrink-0 text-right font-mono font-bold tabular-nums ${
+                            milestone
+                              ? 'text-glow text-base text-primary-bright'
+                              : `text-sm ${it.points >= 0 ? 'text-points' : 'text-danger'}`
+                          }`}
+                        >
+                          {it.points >= 0 ? `+${it.points}` : it.points}
+                          <span className="ml-0.5 text-[0.65rem] font-medium opacity-80">pts</span>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          );
+        })()}
 
         {/* M+2 — coins cascade */}
         {shown(M + 2) && (
