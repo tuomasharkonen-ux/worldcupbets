@@ -71,9 +71,9 @@ async function fetchSlateMembers(slateKey: string, rollover: number): Promise<Ma
   );
 }
 
-// Favorite-team milestone (migration 009): the ledger reason suffix earned by reaching
-// a stage maps from the team's match stage; champion/third are won, handled separately.
-const STAGE_RUNG: Record<string, string> = { r32: 'r32', r16: 'r16', qf: 'qf', sf: 'sf', final: 'final' };
+// Favorite-team milestone (migration 009): the recap copy per ledger reason suffix. Which
+// milestone a given match earns — and the slate it's surfaced on — is decided in
+// milestoneKeysFor (buildRecap), keyed off winning the round, not the match's own stage.
 const MILESTONE_LABEL: Record<string, string> = {
   r32: 'Out of the group',
   r16: 'Reached the round of 16',
@@ -665,30 +665,52 @@ async function buildRecap(
     const teamAmount = new Map<string, number>();
     for (const r of teamRows ?? []) teamAmount.set(`${r.manager_id}:${r.reason}`, r.amount);
 
-    // The milestone keys a team can claim from its matches *on this slate* — reach-rungs
-    // from each stage played, plus champion/third when won here.
-    //
-    // r16/qf/sf's "reach" milestone only becomes claimable once the next round's fixture
-    // exists (REACH_RUNGS in settlement/favorites.ts fires on the fixture existing, not on
-    // winning) — and that fixture isn't assigned until the bracket updates after this win,
-    // typically the next fixtures-sync. Without WIN_UNLOCKS, the recap would only ever show
-    // e.g. "reached r16" on the slate of the r16 match itself, days after the team actually
-    // got there — so a manager would never see "Norway beat Ivory Coast → +Points for
-    // reaching R16" the morning after the win, only whenever R16 kicks off. Attributing it
-    // here, to the win, surfaces it as soon as the ledger amount exists (recap is built live
-    // on every render until dismissed, so an early check before the bracket syncs just won't
-    // show it yet; a later one will).
-    const WIN_UNLOCKS: Record<string, string> = { r32: 'r16', r16: 'qf', qf: 'sf', sf: 'final' };
+    // A team's LAST group-stage match, by kickoff — the slate on which "out of the group" is
+    // surfaced (the moment they actually qualified, not the R32 match days later). Scoped to
+    // the favorite teams that could show a milestone in any manager's recap here.
+    const favTeamIds = [
+      ...new Set(allManagers.map(m => m.favorite_team_id).filter((id): id is string => id != null)),
+    ];
+    const lastGroupKickoff = new Map<string, string>();
+    if (favTeamIds.length > 0) {
+      const { data: grpRows } = await db
+        .from('matches')
+        .select('home_team_id, away_team_id, kickoff_at')
+        .eq('stage', 'group')
+        .neq('status', 'void');
+      for (const g of grpRows ?? []) {
+        for (const tid of [g.home_team_id as string, g.away_team_id as string]) {
+          if (!favTeamIds.includes(tid)) continue;
+          const cur = lastGroupKickoff.get(tid);
+          if (cur == null || (g.kickoff_at as string) > cur) lastGroupKickoff.set(tid, g.kickoff_at as string);
+        }
+      }
+    }
+
+    // The milestone keys a team can claim from its matches *on this slate*. A milestone is
+    // surfaced on the slate of the match that EARNED it, mirroring the ladder award triggers
+    // in settlement/favorites.ts:
+    //   • winning a knockout match → the round that win reaches (an R32 win → "reached R16"),
+    //     not the round just played — a team playing an R32 match reached R32 by qualifying,
+    //     which was an earlier achievement;
+    //   • winning the final / third-place playoff → champion / third;
+    //   • "out of the group" (r32) → the team's LAST group match, the game by which they
+    //     qualified.
+    // Each key is still gated on the ledger amount existing (below), so a team that didn't
+    // qualify never shows "out of the group", and a reach milestone shows only once its win
+    // has been settled and the ladder has paid it. Because the ladder now awards these on the
+    // win (not when the next fixture appears), the amount exists by the time this slate's
+    // recap is built.
+    const WON_ADVANCES: Record<string, string> = { r32: 'r16', r16: 'qf', qf: 'sf', sf: 'final' };
     const milestoneKeysFor = (teamId: string): string[] => {
       const keys = new Set<string>();
       for (const m of members) {
         if (m.home_team_id !== teamId && m.away_team_id !== teamId) continue;
-        if (STAGE_RUNG[m.stage]) keys.add(STAGE_RUNG[m.stage]);
-        if (m.stage === 'final' && m.status === 'finished' && m.winner_team_id === teamId) keys.add('champion');
-        if (m.stage === 'third' && m.status === 'finished' && m.winner_team_id === teamId) keys.add('third');
-        if (m.status === 'finished' && m.winner_team_id === teamId && WIN_UNLOCKS[m.stage]) {
-          keys.add(WIN_UNLOCKS[m.stage]);
-        }
+        const won = m.status === 'finished' && m.winner_team_id === teamId;
+        if (won && WON_ADVANCES[m.stage]) keys.add(WON_ADVANCES[m.stage]);
+        if (won && m.stage === 'final') keys.add('champion');
+        if (won && m.stage === 'third') keys.add('third');
+        if (m.stage === 'group' && lastGroupKickoff.get(teamId) === m.kickoff_at) keys.add('r32');
       }
       return [...keys];
     };

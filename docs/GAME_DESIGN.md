@@ -246,7 +246,7 @@ These need to be explicit in code so settlement is deterministic:
 - **Player didn't play:** the prop settles as a **miss** (0 Glory), not a void — a no-show pick is a loss like any other. `void` is reserved for genuine data gaps (scorer feed never landed, or a carded prop with no match-detail feed at all), so a stray void flags a *bugged* bet rather than a routine non-appearance.
 - **Abandoned / postponed match:** all bets void, stakes refunded; re-open if rescheduled.
 - **Own goals:** count toward the score, but the scorer is **not** credited for Goalscorer props (matches common bookmaker convention).
-- **Extra time & penalty shootouts (knockouts):** bets settle on the **90-minute (regulation) result only** — extra-time goals and the shootout never count for scoring. The league fixed this (a knockout level after 90 settles as a draw for Outcome/Exact, the relevant scoreline being the 90' one). Concretely we store football-data's `score.regularTime` (falling back to `fullTime` for 90-minute matches), **not** `fullTime`, which folds in ET + the shootout tally — e.g. a 1–1 decided on penalties 3–4 is reported by the feed as `fullTime 4–5` and must be stored as **1–1** (see `regulationScore` in `lib/football-data.ts`). The **favorite-team champion/3rd-place milestones** (§10) are the one exception: they use the true tournament winner from `matches.winner_team_id` (which reflects the shootout), not the scoreline.
+- **Extra time & penalty shootouts (knockouts):** bets settle on the **90-minute (regulation) result only** — extra-time goals and the shootout never count for scoring. The league fixed this (a knockout level after 90 settles as a draw for Outcome/Exact, the relevant scoreline being the 90' one). We prefer the feed's `score.regularTime`, **not** `fullTime`, which folds in ET + the shootout tally — e.g. a 1–1 decided on penalties 3–4 is reported as `fullTime 4–5` and must be stored as **1–1** (see `regulationScore` in `lib/football-data.ts`). When the feed provides no `regularTime` for a match won in extra time (our feed does this — it only publishes the a.e.t. `fullTime`), the 90' score is instead **recomputed from the goal timeline** at settle time — goals at minute ≤ 90 only (`regulationScoreFromEvents` in `settlement/regulation.ts`) — so e.g. Belgium 2–2 Senegal (3–2 a.e.t.) settles as a **2–2 draw**, not a Belgium win. The **favorite-team champion/3rd-place milestones** (§10) are the one exception: they use the true tournament winner from `matches.winner_team_id` (which reflects the shootout), not the scoreline.
 - **Settlement is idempotent:** re-running settlement on an already-settled match must not double-pay. Enforced via `matches.settled_at` + the append-only ledger.
 
 ---
@@ -269,15 +269,15 @@ Each milestone pays **base Points × the team's underdog multiplier**:
 
 | Milestone | Base | When |
 | --- | --- | --- |
-| Out of the group (reach R32) | 10 | fixture exists |
-| Reach R16 | 20 | fixture exists |
-| Reach QF | 35 | fixture exists |
-| Reach SF | 55 | fixture exists |
-| 3rd-place playoff win | 40 | finished, won |
-| Reach Final (runner-up) | 75 | fixture exists |
+| Out of the group (reach R32) | 10 | R32 fixture exists (qualified) |
+| Reach R16 | 20 | won the R32 match |
+| Reach QF | 35 | won the R16 match |
+| Reach SF | 55 | won the QF match |
+| Reach Final (runner-up) | 75 | won the SF match |
+| 3rd-place playoff win | 40 | 3rd-place match finished, won |
 | **Champion** | **90** | final finished, won |
 
-A champion banks every rung on the title path (≈285 base before multiplier); a runner-up ≈195. Reach-rungs fire as soon as the knockout fixture appears (football-data only assigns a knockout slot once a team has qualified); champion/3rd resolve on a finished match via `matches.winner_team_id`.
+A champion banks every rung on the title path (≈285 base before multiplier); a runner-up ≈195. **A reach milestone is earned by *winning the previous round*, not by the next fixture merely appearing** (via `matches.winner_team_id`, which reflects extra time / a shootout): winning the R32 pays "reach R16" the morning after that win, rather than days later when the bracket is redrawn and the R16 fixture is assigned. **"Out of the group" (R32) is the one exception** — there's no earlier knockout match to key off, so it fires as soon as the R32 fixture exists (the feed only assigns a knockout slot once a team has qualified). Champion/3rd resolve on a finished final/3rd-place match. In the **/today recap**, each milestone is surfaced on the slate of the match that earned it — the winning match for R16→Final, and the team's **last group match** for "out of the group".
 
 **Underdog multiplier.** Derived from the team's pre-tournament decimal championship odds (`teams.champion_odds`): `mult = clamp(round½(√(odds / base_odds)), min, max)` with `base_odds` 5.5, clamp 1.0–5.0. The √ dampens the spread (a 100× longshot pays ~10×, capped at 5×) so a true minnow can't break the leaderboard, while the top favorites sit at ×1.0. Backing a dark horse pays more at **every** stage it survives — e.g. a ×3.5 side reaching the SF earns ~420 vs a favorite's ~120.
 
@@ -287,6 +287,6 @@ One player from your chosen team's squad. Per match they feature in: **+15 Point
 
 ### Settlement & surfacing
 
-- Favorite-player Points settle inside the per-match settle job (the favorite's match now triggers event ingestion even with no prop bet on it). Favorite-team milestones settle in a dedicated step that runs every cron tick, independent of which matches just finished.
+- Favorite-player Points settle inside the per-match settle job (the favorite's match now triggers event ingestion even with no prop bet on it; every **knockout** match ingests the goal feed too, to recompute the 90' regulation score). Favorite-team milestones settle in a dedicated step that runs every cron tick, independent of which matches just finished.
 - Both are idempotent Glory ledger streams — `fav_player` (`ref_type=match`) and `team_<milestone>` (`ref_type=season`, `ref_id=WC2026`).
 - Shown on **/profile** (locked picks + the team's full ladder + Points earned so far). The daily **/today recap** itemises any favorite Points earned that slate under the points odometer and folds them into the headline total and the standings before/after. Standings/leaderboard reflect the Points automatically since they recompute from the ledger.

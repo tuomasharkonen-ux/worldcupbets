@@ -93,15 +93,30 @@ export interface FdMatchSummary {
 // The 90-minute (regulation) score. Bets settle on the result at full time EXCLUDING
 // extra time and the shootout (GAME_DESIGN §"Penalty shootouts" — the league fixed this:
 // a knockout level after 90 is a draw for Outcome/Exact, the shootout only decides
-// `winner_team_id`). Read `regularTime` when football-data provides it (knockouts that
-// ran past 90); otherwise `fullTime` is already the 90-minute score. Single source of
-// truth so the settle sweep and the daily fixtures-sync can never disagree on what a
-// score "is".
-export function regulationScore(score?: FdScore): { home: number | null; away: number | null } {
-  return {
-    home: score?.regularTime?.home ?? score?.fullTime?.home ?? null,
-    away: score?.regularTime?.away ?? score?.fullTime?.away ?? null,
-  };
+// `winner_team_id`). Read `regularTime` when the feed provides it (knockouts that ran
+// past 90); otherwise `fullTime` is already the 90-minute score. Single source of truth
+// so the settle sweep and the daily fixtures-sync can never disagree on what a score "is".
+//
+// `certain` is false in exactly one case: the match went past 90 (duration EXTRA_TIME /
+// PENALTY_SHOOTOUT) but the feed carries no `regularTime`, so `fullTime` still folds in the
+// ET goals and we CANNOT recover the 90' score from the summary alone. Our feed does this —
+// it publishes `fullTime` (incl. ET goals) with no `regularTime` — so a knockout won in
+// extra time (e.g. Belgium 2-2 Senegal, 3-2 a.e.t.) would otherwise be stored as 3-2. When
+// `certain` is false the true 90' score is recovered from the goal timeline at settle time
+// (regulationScoreFromEvents in settlement/run.ts), and the daily fixtures-sync must not
+// overwrite that corrected value with the (uncertain) summary score.
+export function regulationScore(score?: FdScore): {
+  home: number | null;
+  away: number | null;
+  certain: boolean;
+} {
+  const rt = score?.regularTime;
+  if (rt && (rt.home != null || rt.away != null)) {
+    return { home: rt.home ?? null, away: rt.away ?? null, certain: true };
+  }
+  const ft = score?.fullTime;
+  const wentPast90 = score?.duration === 'EXTRA_TIME' || score?.duration === 'PENALTY_SHOOTOUT';
+  return { home: ft?.home ?? null, away: ft?.away ?? null, certain: !wentPast90 };
 }
 
 export interface FdTeamWithSquad {

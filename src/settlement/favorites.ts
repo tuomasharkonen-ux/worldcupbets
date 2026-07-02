@@ -82,9 +82,10 @@ export function ladderBreakdown(
 // ─── settlement: favorite team ──────────────────────────────────────────────────
 
 // Just the match fields the ladder needs. The caller passes the favorite team's
-// non-void matches (any status); reach-rungs fire on a fixture merely existing
-// (football-data only assigns knockout teams once they've qualified), champion/third
-// only on a finished match with a winner.
+// non-void matches (any status). "Out of the group" (r32) fires on the round-of-32 fixture
+// merely existing (the feed only assigns knockout teams once they've qualified); the deeper
+// reach rungs (r16/qf/sf/final) fire on WINNING the previous round, and champion/third on
+// winning that game.
 export interface LadderMatch {
   stage: MatchStage;
   status: MatchStatus;
@@ -125,10 +126,28 @@ export function teamLadderDeltas(input: TeamLadderInput): CurrencyDelta[] {
     });
   };
 
-  // Reach-a-stage rungs: the fixture existing means the team got there.
-  for (const r of REACH_RUNGS) {
-    if (mine.some(m => m.stage === r.stage)) award(r.key, fav.ladder[r.key]);
+  // "Out of the group" (r32): the round-of-32 fixture existing means the team qualified —
+  // the feed only assigns knockout teams once they're through, so there's no earlier hook.
+  if (mine.some(m => m.stage === 'r32')) award('r32', fav.ladder.r32);
+
+  // Reaching R16 / QF / SF / the final is EARNED by winning the previous knockout round —
+  // not by the next fixture merely existing. Keying off the win (winner_team_id, which
+  // reflects extra time / a shootout) pays the milestone the morning after the match that
+  // secured it, instead of days later once the bracket is redrawn and the next fixture
+  // appears. WON_ADVANCES maps the round played → the round its winner reaches.
+  const WON_ADVANCES: Record<string, keyof FavoritesConfig['ladder']> = {
+    r32: 'r16',
+    r16: 'qf',
+    qf: 'sf',
+    sf: 'final',
+  };
+  for (const m of mine) {
+    if (m.status === 'finished' && m.winner_team_id === teamId) {
+      const reached = WON_ADVANCES[m.stage];
+      if (reached) award(reached, fav.ladder[reached]);
+    }
   }
+
   // Won the final / the third-place playoff.
   if (mine.some(m => m.stage === 'final' && m.status === 'finished' && m.winner_team_id === teamId)) {
     award('champion', fav.ladder.champion);

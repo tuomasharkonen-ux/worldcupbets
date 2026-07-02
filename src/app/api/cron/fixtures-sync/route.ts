@@ -75,34 +75,55 @@ async function syncFixtures(token: string): Promise<{ matches: number; teams: nu
 
     const stage = resolveStage(m);
     const status = mapFdStatus(m.status);
-    // Bets settle on the 90-minute result, so store regulation time — never football-data's
-    // `fullTime`, which folds in extra time + the shootout tally for knockouts (see regulationScore).
+    // Bets settle on the 90-minute result, so store regulation time — never the feed's
+    // `fullTime`, which folds in extra time + the shootout tally for knockouts (see
+    // regulationScore).
     const reg = regulationScore(m.score);
-    const newHome = reg.home;
-    const newAway = reg.away;
+
+    // For a finished match, read the current row once: needed both to detect a
+    // post-settlement score correction (priorSettled below) AND to avoid clobbering the
+    // event-derived 90' score. Only a finished match can carry settled bets or a corrected
+    // score, so we skip this read otherwise — the daily sync's egress stays flat.
+    type ExistingRow = {
+      id: string;
+      home_score: number | null;
+      away_score: number | null;
+      status: string;
+      settled_at: string | null;
+    };
+    let existing: ExistingRow | null = null;
+    if (status === 'finished') {
+      const { data } = await db
+        .from('matches')
+        .select('id, home_score, away_score, status, settled_at')
+        .eq('fd_match_id', m.id)
+        .maybeSingle();
+      existing = (data ?? null) as ExistingRow | null;
+    }
+
+    // When reg.certain is false the summary can't give us the 90' result — a knockout that
+    // ran past 90 with no `regularTime` (our feed publishes only the a.e.t. `fullTime`). The
+    // authoritative 90' score for such a match is the one settlement recomputed from the goal
+    // timeline (regulationScoreFromEvents), so keep the stored value instead of overwriting it
+    // with the a.e.t. scoreline. A fresh, not-yet-settled row (no stored score) still takes the
+    // provisional summary score; settlement corrects it at settle time.
+    const newHome = reg.certain ? reg.home : existing?.home_score ?? reg.home;
+    const newAway = reg.certain ? reg.away : existing?.away_score ?? reg.away;
 
     // Post-settlement score-correction detection. This upsert is the only writer that
     // touches a match's score once it's finished (syncStartedMatchStatuses skips finished
     // rows), so if it changes the score/status of an ALREADY-settled match, the bets were
     // graded against the old score and nothing else will revisit them. Capture the prior
-    // row so we can re-grade just this match afterward. Only a finished match can carry
-    // settled bets, so we skip this read otherwise — the daily sync's egress stays flat.
-    let priorSettled: { id: string; home_score: number | null; away_score: number | null; status: string } | null = null;
-    if (status === 'finished') {
-      const { data: existing } = await db
-        .from('matches')
-        .select('id, home_score, away_score, status, settled_at')
-        .eq('fd_match_id', m.id)
-        .maybeSingle();
-      if (existing?.settled_at) {
-        priorSettled = {
-          id: existing.id as string,
-          home_score: existing.home_score as number | null,
-          away_score: existing.away_score as number | null,
-          status: existing.status as string,
-        };
-      }
-    }
+    // row so we can re-grade just this match afterward.
+    const priorSettled: { id: string; home_score: number | null; away_score: number | null; status: string } | null =
+      existing?.settled_at
+        ? {
+            id: existing.id,
+            home_score: existing.home_score,
+            away_score: existing.away_score,
+            status: existing.status,
+          }
+        : null;
 
     // The true winner — needed for the favorite-team ladder. The stored score is the
     // 90-minute result (a draw for a knockout that went to penalties), so winner can't be

@@ -15,6 +15,7 @@ import {
   teamMultiplier,
   type LadderMatch,
 } from '@/settlement/favorites';
+import { regulationScoreFromEvents } from '@/settlement/regulation';
 import { slateKeyOf } from '@/lib/slate';
 import type { Bet, EventType, League, ManagerState, Match, MatchEvent } from '@/types/db';
 
@@ -363,6 +364,37 @@ async function closeCompletedSlate(slateKey: string, league: League, rollover: n
   return true;
 }
 
+// Load a footballer→team map for both sides of a match — used to attribute goal events to
+// a side when recomputing the regulation score.
+async function loadTeamOf(match: Pick<Match, 'home_team_id' | 'away_team_id'>): Promise<Map<string, string>> {
+  const { data: players } = await db
+    .from('footballers')
+    .select('id, team_id')
+    .in('team_id', [match.home_team_id, match.away_team_id]);
+  return new Map((players ?? []).map(p => [p.id as string, p.team_id as string]));
+}
+
+// Recompute + persist the 90' regulation score for a knockout that ran to extra time,
+// mutating `match` in place so the pure engine settles against it. No-op for group games,
+// matches that didn't go past 90, or an untrustworthy goal timeline. Shared by the live
+// settle path and the backfill/reconcile path so both agree on the scoreline.
+async function applyRegulationScoreCorrection(
+  match: Match,
+  events: MatchEvent[],
+  teamOf: Map<string, string>,
+): Promise<void> {
+  const reg = regulationScoreFromEvents(match, events, teamOf);
+  if (!reg) return;
+  if (reg.home === match.home_score && reg.away === match.away_score) return;
+  await db.from('matches').update({ home_score: reg.home, away_score: reg.away }).eq('id', match.id);
+  console.log(
+    `[settle] match ${match.id}: 90' regulation score ${reg.home}-${reg.away} ` +
+      `(was ${match.home_score}-${match.away_score}) from the goal timeline`,
+  );
+  match.home_score = reg.home;
+  match.away_score = reg.away;
+}
+
 // Settles one match. Returns true when it actually settled, false when it was
 // deferred (e.g. the goal feed hasn't landed yet) or already settled by a concurrent
 // run — so the caller only runs day-close for slates it genuinely just completed.
@@ -389,9 +421,11 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
   // Resolve which managers that's, so we know to pull match events for them too.
   const { data: squad } = await db
     .from('footballers')
-    .select('id')
+    .select('id, team_id')
     .in('team_id', [match.home_team_id, match.away_team_id]);
   const squadIds = (squad ?? []).map(s => s.id as string);
+  // footballer→team, reused to attribute goals when recomputing the 90' score below.
+  const teamOf = new Map((squad ?? []).map(s => [s.id as string, s.team_id as string]));
   let favPlayers: { managerId: string; footballerId: string }[] = [];
   if (squadIds.length > 0) {
     const { data: favMgrs } = await db
@@ -404,13 +438,15 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
     }));
   }
 
-  // Player props AND favorite players need goals/cards/lineups from football-data. Only
-  // pay for the extra API call when something on this match actually depends on it.
-  // If ingestion throws, we let settleMatch throw too: the match stays unsettled
-  // (settled_at null) and the next cron run retries — better than prematurely
-  // settling props on missing data.
+  // Player props AND favorite players need goals/cards/lineups from football-data. Knockout
+  // matches need the goal timeline too — to recompute the 90' regulation score for a game
+  // that ran to extra time (see applyRegulationScoreCorrection). Only pay for the extra API
+  // call when something on this match actually depends on it. If ingestion throws, we let
+  // settleMatch throw too: the match stays unsettled (settled_at null) and the next cron run
+  // retries — better than prematurely settling props on missing data.
   const hasProps = pendingBets.some(b => PROP_BET_TYPES.includes(b.bet_type));
-  if (hasProps || favPlayers.length > 0) {
+  const isKnockout = match.stage !== 'group';
+  if (hasProps || favPlayers.length > 0 || isKnockout) {
     await ingestMatchData(match);
   }
 
@@ -449,8 +485,13 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
     e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal',
   );
   const hasScorerSource = match.af_fixture_id != null;
+  // A knockout also needs the goal timeline landed before it can settle — not for scorers
+  // but to recompute the 90' regulation score for a game that ran to extra time. Settling
+  // off the a.e.t. scoreline would grade every score-derived bet against the wrong result.
   const needsScorers =
-    pendingBets.some(b => SCORER_FEED_BET_TYPES.includes(b.bet_type)) || favPlayers.length > 0;
+    pendingBets.some(b => SCORER_FEED_BET_TYPES.includes(b.bet_type)) ||
+    favPlayers.length > 0 ||
+    isKnockout;
   const SCORER_GRACE_MS = 8 * 60 * 60 * 1000; // ~kickoff + 8h: well past full time
   const withinGrace = Date.now() - new Date(match.kickoff_at).getTime() < SCORER_GRACE_MS;
   if (needsScorers && hasScorerSource && totalGoals > 0 && !goalFeedLanded && withinGrace) {
@@ -458,6 +499,13 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
       `[settle] match ${match.id}: ${match.home_score}-${match.away_score} but API-Football has no scorers yet — deferring`,
     );
     return false; // not settled; a later run retries once the scorer feed catches up
+  }
+
+  // Knockout gone to extra time: recompute + persist the 90' regulation score from the goal
+  // timeline before grading, so outcome/exact/over-under settle on the 90' result (a draw
+  // for a match decided after 90) rather than the a.e.t. scoreline the summary feed stored.
+  if (isKnockout) {
+    await applyRegulationScoreCorrection(match, (events ?? []) as MatchEvent[], teamOf);
   }
 
   // Run the pure settlement engine
@@ -687,6 +735,28 @@ async function reconcileMatchBets(
       ({ evs, appearances } = await loadStoredEvents(match.id));
     }
     out.hadScorers = evs.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
+  }
+
+  // Knockout gone to extra time: recompute the 90' regulation score from the goal timeline
+  // so the re-grade below settles score-derived bets on the 90' result — this is what lets a
+  // one-off backfill heal a match settled against its a.e.t. scoreline. Needs the goal
+  // timeline even for a match with no props, so load stored events when we didn't fetch any
+  // above. Mutates the in-memory score so a dry run previews the flip; only writes on a real
+  // run. Idempotent: a match already stored at its 90' score recomputes to the same value.
+  if (match.stage !== 'group') {
+    let goalEvents = evs;
+    if (goalEvents.length === 0) ({ evs: goalEvents } = await loadStoredEvents(match.id));
+    const reg = regulationScoreFromEvents(match, goalEvents, await loadTeamOf(match));
+    if (reg && (reg.home !== match.home_score || reg.away !== match.away_score)) {
+      if (!dryRun) {
+        await db
+          .from('matches')
+          .update({ home_score: reg.home, away_score: reg.away })
+          .eq('id', match.id);
+      }
+      match.home_score = reg.home;
+      match.away_score = reg.away;
+    }
   }
 
   for (const bet of bets) {
