@@ -17,6 +17,13 @@ import { backfillSettledBets } from '@/settlement/run';
 //                                              to API-Football) so previously-voided
 //                                              scorer props settle without retroactively
 //                                              re-pointing grandfathered historical bets.
+//   GET .../settle-backfill?match=<uuid>     → scope the sweep to a single match. A full
+//                                              sweep re-grades every decided bet and would
+//                                              overwrite bets grandfathered under earlier
+//                                              scoring rules (e.g. exact_score paid 35 pre
+//                                              35→25); scope to the one match you mean to
+//                                              repair (e.g. an extra-time knockout whose
+//                                              90' score was corrected). Combine with dry=1.
 //
 // CRON_SECRET-guarded, like the other cron routes. Safe to run repeatedly.
 export async function GET(req: NextRequest) {
@@ -27,8 +34,9 @@ export async function GET(req: NextRequest) {
   const params = new URL(req.url).searchParams;
   const dryRun = params.get('dry') === '1';
   const onlyUndecided = params.get('undecided') === '1';
+  const matchId = params.get('match') || undefined;
   try {
-    const result = await backfillSettledBets(dryRun, onlyUndecided);
+    const result = await backfillSettledBets(dryRun, onlyUndecided, matchId);
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     console.error('[settle-backfill] error:', err);

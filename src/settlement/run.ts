@@ -628,7 +628,17 @@ export interface BackfillResult {
 // scorer props can finally settle off real goals instead of voiding): it fixes those
 // refunded/undecided props without retroactively re-pointing historical bets that were
 // settled — and possibly grandfathered — under earlier scoring rules.
-export async function backfillSettledBets(dryRun = false, onlyUndecided = false): Promise<BackfillResult> {
+//
+// `matchId` scopes the sweep to a single match. A full sweep re-grades EVERY decided bet,
+// which also surfaces (and would overwrite) bets deliberately grandfathered under earlier
+// scoring rules — e.g. exact_score paid 35 before the 35→25 change. When you only mean to
+// repair one match (a score correction like an extra-time knockout), scope to it so those
+// grandfathered bets are left untouched.
+export async function backfillSettledBets(
+  dryRun = false,
+  onlyUndecided = false,
+  matchId?: string,
+): Promise<BackfillResult> {
   const { data: league, error: leagueErr } = await db
     .from('league')
     .select('*')
@@ -647,11 +657,11 @@ export async function backfillSettledBets(dryRun = false, onlyUndecided = false)
   };
 
   // Every already-settled match — a post-settlement score correction can flip a
-  // score-derived bet on any of them, not only the ones carrying props.
-  const { data: matchRows } = await db
-    .from('matches')
-    .select('*')
-    .not('settled_at', 'is', null);
+  // score-derived bet on any of them, not only the ones carrying props. Scoped to one
+  // match when matchId is given.
+  let matchQuery = db.from('matches').select('*').not('settled_at', 'is', null);
+  if (matchId) matchQuery = matchQuery.eq('id', matchId);
+  const { data: matchRows } = await matchQuery;
   const matches = (matchRows ?? []) as Match[];
   result.matchesScanned = matches.length;
 
