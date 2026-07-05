@@ -501,6 +501,19 @@ async function settleMatch(match: Match, league: League): Promise<boolean> {
     return false; // not settled; a later run retries once the scorer feed catches up
   }
 
+  // Unmapped match with goals + scorer/prop/knockout needs but no goal feed: there is no
+  // scorer source, so the engine below will VOID every scorer prop (and skip favorite-player
+  // goal bonuses). For WC2026 this should never be a legitimate "football-data-only" match —
+  // every fixture is in API-Football — so it means the af-map sync hasn't reached this fixture
+  // yet (e.g. a knockout pairing set after the last mapping run). This used to void silently
+  // (Paraguay–France R16: Mbappé's penalty lost). Surface it loudly. Fix: run /api/cron/af-map
+  // to map the fixture, then /api/cron/settle-backfill?match=<id>&undecided=1 to re-grade.
+  if (needsScorers && !hasScorerSource && totalGoals > 0 && !goalFeedLanded) {
+    console.error(
+      `[settle] match ${match.id}: ${match.home_score}-${match.away_score} with pending scorer/prop/knockout bets but af_fixture_id is null — no API-Football scorer source. Scorer props will VOID and favorite-player goals will be missed. Run af-map, then settle-backfill?match=${match.id}&undecided=1.`,
+    );
+  }
+
   // Knockout gone to extra time: recompute + persist the 90' regulation score from the goal
   // timeline before grading, so outcome/exact/over-under settle on the 90' result (a draw
   // for a match decided after 90) rather than the a.e.t. scoreline the summary feed stored.
@@ -721,16 +734,23 @@ async function reconcileMatchBets(
   if (onlyUndecided) bets = bets.filter(b => b.status === 'void' || b.status === 'pending');
   if (bets.length === 0) return out;
 
-  // Props need the goal/card/lineup feed; score-derived bets read only the final score
-  // (already on the match row), so only pay for the feed when props are present. Read
-  // the live feed (read-only) so even a dry run previews what a real run would settle;
-  // if it now carries scorers, evaluate against those and persist them on a real run,
-  // otherwise fall back to whatever events we already have. A feed outage must not block
-  // re-evaluating this match's score-derived bets, so on error we fall back too.
+  // Favorite-player bonus (migration 009): managers whose locked favorite player is in
+  // this match earn Points for goals — whether or not they bet. Like settleMatch, the
+  // re-grade must re-apply these off the (possibly freshly re-ingested) feed, else a
+  // backfill that heals a scorer prop would leave the same manager's favorite-player goal
+  // bonus lost — the exact silent under-pay behind the Paraguay–France void.
+  const favPlayers = league.config.favorites ? await loadFavoritePlayers(match) : [];
+
+  // Props (and favorite players) need the goal/card/lineup feed; score-derived bets read
+  // only the final score (already on the match row), so only pay for the feed when it's
+  // actually needed. Read the live feed (read-only) so even a dry run previews what a real
+  // run would settle; if it now carries scorers, evaluate against those and persist them on
+  // a real run, otherwise fall back to whatever events we already have. A feed outage must
+  // not block re-evaluating this match's score-derived bets, so on error we fall back too.
   const hasProps = bets.some(b => PROP_BET_TYPES.includes(b.bet_type));
   let evs: MatchEvent[] = [];
   let appearances: string[] = [];
-  if (hasProps) {
+  if (hasProps || favPlayers.length > 0) {
     try {
       const fetched = await fetchMatchEvents(match);
       if (fetched.hasGoals) {
@@ -816,7 +836,77 @@ async function reconcileMatchBets(
     out.affectedManagers.push(bet.manager_id);
   }
 
+  // Reconcile the favorite-player goal/booking bonus off the same (re-ingested) events,
+  // in both directions like the bets above: for every manager whose favorite is in this
+  // match, delete the prior match-scoped `fav_player` row and re-insert the current net
+  // delta if non-zero. Idempotent — a match already at its correct bonus recomputes to the
+  // same value. Only touches balances (recomputed by the caller), not the bet-shaped
+  // `changes` report. Skipped on a dry run so it stays preview-only.
+  if (!dryRun && league.config.favorites && favPlayers.length > 0) {
+    const favDeltas = favoritePlayerDeltas({
+      matchId: match.id,
+      events: evs,
+      favorites: favPlayers,
+      fav: league.config.favorites,
+    });
+    const byManager = new Map(favDeltas.map(d => [d.managerId, d]));
+    for (const { managerId } of favPlayers) {
+      const { data: prior } = await db
+        .from('ledger')
+        .select('amount')
+        .eq('reason', 'fav_player')
+        .eq('ref_type', 'match')
+        .eq('ref_id', match.id)
+        .eq('manager_id', managerId)
+        .maybeSingle();
+      const next = byManager.get(managerId);
+      const priorAmount = (prior?.amount as number | undefined) ?? 0;
+      if (priorAmount === (next?.amount ?? 0)) continue; // unchanged — leave it be
+
+      await db
+        .from('ledger')
+        .delete()
+        .eq('reason', 'fav_player')
+        .eq('ref_type', 'match')
+        .eq('ref_id', match.id)
+        .eq('manager_id', managerId);
+      if (next) {
+        const { error } = await db.from('ledger').insert({
+          manager_id: managerId,
+          currency: next.currency,
+          amount: next.amount,
+          reason: next.reason,
+          ref_type: next.refType,
+          ref_id: next.refId,
+        });
+        if (error) throw error;
+      }
+      out.affectedManagers.push(managerId);
+    }
+  }
+
   return out;
+}
+
+// Managers whose locked favorite player is in this match, with that player's id. Mirrors
+// the same lookup in settleMatch so the settle and backfill paths pay identical bonuses.
+async function loadFavoritePlayers(
+  match: Pick<Match, 'home_team_id' | 'away_team_id'>,
+): Promise<{ managerId: string; footballerId: string }[]> {
+  const { data: squad } = await db
+    .from('footballers')
+    .select('id')
+    .in('team_id', [match.home_team_id, match.away_team_id]);
+  const squadIds = (squad ?? []).map(s => s.id as string);
+  if (squadIds.length === 0) return [];
+  const { data: favMgrs } = await db
+    .from('managers')
+    .select('id, favorite_footballer_id')
+    .in('favorite_footballer_id', squadIds);
+  return (favMgrs ?? []).map(m => ({
+    managerId: m.id as string,
+    footballerId: m.favorite_footballer_id as string,
+  }));
 }
 
 // Public entry for the fixtures-sync score-correction trigger. When the daily sync

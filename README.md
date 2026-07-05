@@ -17,7 +17,7 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 - **motion (Framer Motion)** — spring choreography for the morning recap's FIFA-pack reveal (pick-by-pick reveal + per-slip rarity tiers). Shine/glow effects stay pure CSS.
 - **Supabase Postgres** — game state. Accessed server-side with the service-role key; RLS intentionally off (trust model is "a private group of friends").
 - **iron-session** — shared passcode + a per-player PIN → signed cookie that persists ~400 days (stays logged in on the device until you sign out). No email.
-- **Vercel** — hosting + the `fixtures-sync` cron.
+- **Vercel** — hosting + the daily crons (`fixtures-sync`, `squads-sync`, `af-map`).
 - **cron-job.org** — the twice-daily `settle` cron (Vercel Hobby's cron limits made an external trigger necessary; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)).
 - **Jest** — unit tests for the settlement engine.
 
@@ -46,7 +46,7 @@ src/
     today/                daily slate: betting → all-set → settling → recap (+ ShareBetsButton;
                           Social = everyone's bets + banter feed, with actions.ts + social-data.ts)
     admin/                hidden preview gallery — every view on mock data (no DB/session)
-    api/cron/             fixtures-sync, squads-sync, settle  (CRON_SECRET-guarded)
+    api/cron/             fixtures-sync, squads-sync, af-map, settle, settle-backfill, af-probe  (CRON_SECRET-guarded)
     api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
     api/gifs/             Giphy search proxy for the banter feed  (session-guarded)
   components/
@@ -109,7 +109,9 @@ All server-only; never shipped to the browser. Set in Vercel for production, `.e
   curl -H "Authorization: Bearer $CRON_SECRET" https://worldcupbets.vercel.app/api/cron/af-probe
   ```
 - **Map API-Football ids** (pairs our teams/matches/footballers to API-Football ids →
-  `af_team_id` / `af_fixture_id` / `af_player_id`; **always `?dry=1` first** and eyeball
+  `af_team_id` / `af_fixture_id` / `af_player_id`). This now runs **daily via Vercel cron**
+  so knockout fixtures are mapped as their pairings are set; the manual trigger below is for
+  an immediate refresh (e.g. after adding a team-name alias — **`?dry=1` first** and eyeball
   the unmatched lists before committing):
   ```bash
   curl -H "Authorization: Bearer $CRON_SECRET" "https://worldcupbets.vercel.app/api/cron/af-map?dry=1"
