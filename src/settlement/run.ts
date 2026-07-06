@@ -1,7 +1,8 @@
 import { after } from 'next/server';
 import { db } from '@/lib/supabase';
 import { getCompetitionMatches, getMatchDetail, mapFdStatus, regulationScore } from '@/lib/football-data';
-import { getFixtureEvents, getFixtureLineups, type AfEvent } from '@/lib/api-football';
+import { getFixtureEvents, getFixtureLineups } from '@/lib/api-football';
+import { afEventToRow, isShootoutKick } from '@/settlement/af-events';
 import {
   settle,
   settleBet,
@@ -16,8 +17,15 @@ import {
   type LadderMatch,
 } from '@/settlement/favorites';
 import { regulationScoreFromEvents } from '@/settlement/regulation';
+import {
+  gbMultiplier,
+  goldenBracketDeltas,
+  resolvePlacements,
+  topScorers,
+  type GbScorerEvent,
+} from '@/settlement/golden-bracket';
 import { slateKeyOf } from '@/lib/slate';
-import type { Bet, EventType, League, ManagerState, Match, MatchEvent } from '@/types/db';
+import type { Bet, EventType, GoldenBracket, League, ManagerState, Match, MatchEvent } from '@/types/db';
 
 // bet_types that need match_events / lineups to settle. Single source of truth lives
 // in the engine (PLAYER_PROP_BET_TYPES) so the gating here can't drift from the set of
@@ -29,6 +37,7 @@ export interface SettlementResult {
   settled: number;
   slatesClosed: number;
   favTeamAwards: number;
+  gbAwards: number;
 }
 
 // The full settlement pass: sync started-match statuses from football-data, settle
@@ -50,7 +59,10 @@ export async function runSettlement(): Promise<SettlementResult> {
   // of which matches just finished: a reach-a-stage milestone fires as soon as the
   // knockout fixture appears, and champion/third resolve when those games finish.
   const favTeamAwards = await settleFavoriteTeams();
-  return { statusesSynced, settled, slatesClosed, favTeamAwards };
+  // Golden Bracket special bet (migration 016): a no-op every tick until the
+  // tournament is fully settled, then pays each winning line exactly once.
+  const gbAwards = await settleGoldenBracket();
+  return { statusesSynced, settled, slatesClosed, favTeamAwards, gbAwards };
 }
 
 // True when there is settlement work outstanding: a finished match not yet settled,
@@ -277,6 +289,117 @@ async function settleFavoriteTeams(): Promise<number> {
 
   await recomputeBalances([...new Set(allDeltas.map(d => d.managerId))]);
   return allDeltas.length;
+}
+
+// Golden Bracket special bet (migration 016). Settles exactly once, at tournament
+// end: the final must be finished AND settled, and no non-void match may be left
+// unfinished or unsettled — which guarantees every goal event is ingested, so the
+// top-scorer tally is complete. (The explicit final gate matters: mid-tournament
+// there are moments when every EXISTING row is settled but the next round's
+// fixtures haven't been drawn yet.) Idempotent like the favorites ladder: each
+// winning line is one ledger row keyed (reason='gb_*', ref_type='season',
+// ref_id=season, manager_id).
+async function settleGoldenBracket(): Promise<number> {
+  const { data: league } = await db
+    .from('league')
+    .select('season, config')
+    .eq('id', 1)
+    .single<Pick<League, 'season' | 'config'>>();
+  const cfg = league?.config.golden_bracket;
+  if (!league || !cfg) return 0; // not configured → nothing to do
+
+  const { data: pickRows } = await db.from('golden_brackets').select('*');
+  const brackets = (pickRows ?? []) as GoldenBracket[];
+  if (brackets.length === 0) return 0;
+
+  // Tournament-over gates, cheapest first (both are head counts).
+  const { count: finalDone } = await db
+    .from('matches')
+    .select('id', { count: 'exact', head: true })
+    .eq('stage', 'final')
+    .eq('status', 'finished')
+    .not('settled_at', 'is', null);
+  if (!finalDone) return 0;
+  const { count: outstanding } = await db
+    .from('matches')
+    .select('id', { count: 'exact', head: true })
+    .neq('status', 'void')
+    .or('status.neq.finished,settled_at.is.null');
+  if (outstanding !== 0) return 0;
+
+  // Placements from the last three fixtures; the scorer tally from every goal event.
+  const { data: matchRows } = await db
+    .from('matches')
+    .select('stage, status, home_team_id, away_team_id, winner_team_id')
+    .in('stage', ['sf', 'third', 'final'])
+    .neq('status', 'void');
+  const placements = resolvePlacements((matchRows ?? []) as LadderMatch[]);
+  if (placements.champion == null) return 0;
+
+  const { data: eventRows } = await db
+    .from('match_events')
+    .select('footballer_id, type, is_own_goal')
+    .in('type', ['goal', 'penalty']);
+  const scorer = topScorers((eventRows ?? []) as GbScorerEvent[]);
+
+  // Odds → multipliers for every picked team.
+  const pickedTeamIds = [
+    ...new Set(
+      brackets.flatMap(b => [
+        b.champion_team_id,
+        b.runner_up_team_id,
+        b.third_team_id,
+        b.fourth_team_id,
+      ]),
+    ),
+  ];
+  const { data: teamRows } = await db.from('teams').select('id, gb_odds').in('id', pickedTeamIds);
+  const multByTeam = new Map<string, number>(
+    (teamRows ?? []).map(t => [t.id as string, gbMultiplier(t.gb_odds as number | null, cfg)]),
+  );
+
+  // Already-awarded lines → only write (and recompute) genuinely new ones.
+  const { data: priorRows } = await db
+    .from('ledger')
+    .select('manager_id, reason')
+    .eq('ref_type', 'season')
+    .eq('ref_id', league.season)
+    .like('reason', 'gb_%');
+  const alreadyAwarded = new Set((priorRows ?? []).map(r => `${r.manager_id}:${r.reason}`));
+
+  const deltas = goldenBracketDeltas({
+    picks: brackets.map(b => ({
+      managerId: b.manager_id,
+      champion: b.champion_team_id,
+      runnerUp: b.runner_up_team_id,
+      third: b.third_team_id,
+      fourth: b.fourth_team_id,
+      scorerId: b.top_scorer_id,
+      scorerGoals: b.scorer_goals,
+    })),
+    placements,
+    multByTeam,
+    scorer,
+    cfg,
+    seasonKey: league.season,
+  }).filter(d => !alreadyAwarded.has(`${d.managerId}:${d.reason}`));
+  if (deltas.length === 0) return 0;
+
+  const rows = deltas.map(d => ({
+    manager_id: d.managerId,
+    currency: d.currency,
+    amount: d.amount,
+    reason: d.reason,
+    ref_type: d.refType,
+    ref_id: d.refId,
+  }));
+  const { error } = await db
+    .from('ledger')
+    .upsert(rows, { onConflict: 'reason,ref_type,ref_id,manager_id', ignoreDuplicates: true });
+  if (error) throw error;
+
+  await recomputeBalances([...new Set(deltas.map(d => d.managerId))]);
+  return deltas.length;
 }
 
 // Recompute the cached managers.glory / managers.coins from the append-only ledger
@@ -1040,9 +1163,9 @@ async function fetchMatchEventsFromAf(match: Match): Promise<FetchedMatchData> {
     if (row) eventRows.push(row);
 
     // A scored goal's assister → a separate `assist` event row (settles anytime-assist
-    // bets). AF carries the assister in `e.assist` on Goal events; own goals and missed
-    // penalties have no meaningful assist. This data was previously fetched and dropped.
-    if (e.type === 'Goal' && e.detail !== 'Own Goal' && e.detail !== 'Missed Penalty' && e.assist?.id != null) {
+    // bets). AF carries the assister in `e.assist` on Goal events; own goals, missed
+    // penalties and shootout kicks have no meaningful assist.
+    if (e.type === 'Goal' && e.detail !== 'Own Goal' && e.detail !== 'Missed Penalty' && !isShootoutKick(e) && e.assist?.id != null) {
       const assistId = byAfId.get(e.assist.id) ?? null;
       if (assistId) {
         eventRows.push({
@@ -1078,30 +1201,6 @@ async function fetchMatchEventsFromAf(match: Match): Promise<FetchedMatchData> {
 
   const hasGoals = eventRows.some(e => e.type === 'goal' || e.type === 'penalty' || e.type === 'own_goal');
   return { eventRows, appeared: [...appeared], hasGoals };
-}
-
-// Map one API-Football event to a match_events row, or null for events we don't store
-// (substitutions, VAR, missed penalties).
-function afEventToRow(
-  e: AfEvent,
-  byAfId: Map<number, string>,
-  matchId: string,
-): FetchedMatchData['eventRows'][number] | null {
-  const fid = e.player?.id != null ? byAfId.get(e.player.id) ?? null : null;
-  const minute = e.time?.elapsed ?? null;
-
-  if (e.type === 'Goal') {
-    if (e.detail === 'Missed Penalty') return null;
-    const isOwn = e.detail === 'Own Goal';
-    const type: EventType = isOwn ? 'own_goal' : e.detail === 'Penalty' ? 'penalty' : 'goal';
-    return { match_id: matchId, footballer_id: fid, type, minute, is_own_goal: isOwn };
-  }
-  if (e.type === 'Card') {
-    if (e.detail !== 'Yellow Card' && e.detail !== 'Red Card') return null;
-    const type: EventType = e.detail === 'Red Card' ? 'red' : 'yellow';
-    return { match_id: matchId, footballer_id: fid, type, minute, is_own_goal: false };
-  }
-  return null;
 }
 
 // Fetch from football-data and (re)write match_events + match_appearances for this

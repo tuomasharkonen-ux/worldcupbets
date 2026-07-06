@@ -61,6 +61,13 @@ Single-row global config. Keeps tunable values out of the code.
 > `ladder` (`r32` 10, `r16` 20, `qf` 35, `sf` 55, `third` 40, `final` 75, `champion` 90 —
 > base Points per milestone, before the team's odds multiplier), and the favorite-player
 > rates `player_goal` (15) / `player_card` (−5). See `GAME_DESIGN.md` §10.
+>
+> **Golden Bracket config (migration `016`)** adds `config.golden_bracket`: `base_odds`
+> (2.75 — the post-R16 favorite → multiplier 1.0), `min_mult`/`max_mult` (1.0 / 5.0),
+> `slots` (`champion` 100, `runner_up` 60, `third` 40, `fourth` 30 — base Points for an
+> exact placement, × the team's `gb_odds` multiplier), `consolation` (15 — picked team
+> top-4 but wrong slot), `scorer_player` (75), `scorer_exact` (50) and `scorer_close`
+> (20). See `GAME_DESIGN.md` §11.
 
 ### `managers`
 The humans (up to `config.max_managers`).
@@ -93,6 +100,7 @@ The 48 nations. Holds the cross-source ID mapping.
 | `fd_team_id` | int | football-data.org id |
 | `sofa_team_id` | int | Sofascore id (nullable until mapped) |
 | `champion_odds` | numeric | pre-tournament decimal championship odds (migration `009`), seeded once; drives the favorite-team underdog multiplier |
+| `gb_odds` | numeric | fresh post-R16 outright odds (migration `016`), seeded for the 12 teams alive at the R16; drives the Golden Bracket multiplier. The wizard refuses to open if a quarter-finalist is missing one. |
 
 ### `footballers`
 Squad members (~26 per team). Mapping plus display.
@@ -208,6 +216,23 @@ One row per bet (a slip is just the set of bets sharing a `manager_id` + `match_
 > matches must fit the balance), not a reservation — a manager could still over-commit
 > across slates and dip negative on a bad day. Acceptable at five-player scale.
 
+### `golden_brackets` (migration `016`)
+The Golden Bracket special bet (`GAME_DESIGN.md` §11) — one row per manager, deliberately
+**not** in `bets` (whose `match_id` is NOT NULL; this bet spans the whole run-in). Upserted
+freely until the first QF kickoff; the lock is temporal, enforced by the server action
+re-deriving the window on every submit — no lock column.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `manager_id` | uuid PK, FK → managers | one bracket per manager |
+| `champion_team_id` | uuid FK → teams | pairwise CHECKs force the four placement picks to be distinct |
+| `runner_up_team_id` | uuid FK → teams | |
+| `third_team_id` | uuid FK → teams | |
+| `fourth_team_id` | uuid FK → teams | |
+| `top_scorer_id` | uuid FK → footballers | must be on a QF squad (validated in the action; the tally itself is global) |
+| `scorer_goals` | int | predicted final tally, CHECK 1–30 |
+| `created_at` / `updated_at` | timestamptz | `updated_at` stamped on every re-save |
+
 ### `comments` (migration `010`)
 The match-day banter feed on `/today` (all-set + settling states), scoped to a slate.
 
@@ -256,7 +281,7 @@ Append-only. Source of truth for every Glory and Coin movement.
 | `manager_id` | uuid FK → managers | |
 | `currency` | text | `glory` \| `coins` |
 | `amount` | int | signed (negative for spends/losses) |
-| `reason` | text | `bet_win` \| `bet_coin` \| `stake_spend` \| `participation` \| `clean_slate` \| `fav_player` \| `team_r32`/`team_r16`/`team_qf`/`team_sf`/`team_third`/`team_final`/`team_champion` \| `purchase` \| `sabotage_in` \| `sabotage_out` \| `jinx` … |
+| `reason` | text | `bet_win` \| `bet_coin` \| `stake_spend` \| `participation` \| `clean_slate` \| `fav_player` \| `team_r32`/`team_r16`/`team_qf`/`team_sf`/`team_third`/`team_final`/`team_champion` \| `gb_champion`/`gb_runner_up`/`gb_third`/`gb_fourth`/`gb_top4_<slot>`/`gb_scorer`/`gb_scorer_goals` \| `purchase` \| `sabotage_in` \| `sabotage_out` \| `jinx` … |
 | `ref_type` | text | `bet` \| `match` \| `slate` \| `season` \| `item` … |
 | `ref_id` | text | the thing that caused it — a uuid for `bet`/`match`/`item`, a slate date key (`YYYY-MM-DD`) for `slate`-scoped grants, or the season key (`WC2026`) for `season`-scoped favorite-team milestones. Widened from uuid to text in migration `005`. |
 
@@ -267,6 +292,13 @@ Append-only. Source of truth for every Glory and Coin movement.
 > milestone the favorite team reaches/wins, amount = base ladder × the team's odds
 > multiplier. The `(reason, ref_type, ref_id, manager_id)` unique index makes both
 > idempotent, so the every-10-min settle cron re-runs harmlessly. See `GAME_DESIGN.md` §10.
+>
+> **Golden Bracket (migration `016`)** adds one more season-scoped Glory stream: up to
+> one row per winning line and manager — `gb_champion`/`gb_runner_up`/`gb_third`/`gb_fourth`
+> (exact placements, base × the team's `gb_odds` multiplier), `gb_top4_<slot>` (wrong-slot
+> consolation; per-slot reasons so a manager can land several), `gb_scorer` (flat) and
+> `gb_scorer_goals` (exact-or-close tally bonus). All `ref_type=season`, `ref_id=WC2026`,
+> written once at tournament end by `settleGoldenBracket`. See `GAME_DESIGN.md` §11.
 | `created_at` | timestamptz | |
 
 > Idempotency: a `(reason, ref_type, ref_id, manager_id)` unique index prevents double-crediting if settlement re-runs.

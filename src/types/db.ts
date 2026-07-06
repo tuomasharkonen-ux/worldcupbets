@@ -78,6 +78,9 @@ export interface LeagueConfig {
   // Favorite team + player scoring (migration 009). Optional so pre-009 configs
   // still type-check; the favorites settlement no-ops when absent.
   favorites?: FavoritesConfig;
+  // Golden Bracket special bet (migration 016). Optional so pre-016 configs still
+  // type-check; the golden-bracket settlement and UI no-op when absent.
+  golden_bracket?: GoldenBracketConfig;
 }
 
 // Tuning for the favorite-team advancement ladder and favorite-player rewards
@@ -104,6 +107,45 @@ export interface FavoritesConfig {
   // per-match penalty when booked (negative).
   player_goal: number;
   player_card: number;
+}
+
+// Tuning for the Golden Bracket special bet (migration 016). See
+// src/settlement/golden-bracket.ts for how these are applied.
+export interface GoldenBracketConfig {
+  // Odds → multiplier params, same √(odds/base) formula as favorites, applied to
+  // teams.gb_odds (the fresh post-R16 outright odds).
+  base_odds: number;
+  min_mult: number;
+  max_mult: number;
+  // Base Points for an exactly-right placement, each × the picked team's multiplier.
+  slots: {
+    champion: number;
+    runner_up: number;
+    third: number;
+    fourth: number;
+  };
+  // Picked team finishes top-4 but in the wrong slot (× that team's multiplier).
+  // Never stacks with an exact hit on the same slot.
+  consolation: number;
+  // Flat Points when the picked player is tied-or-sole top scorer by goals.
+  scorer_player: number;
+  // Goal-tally bonus, paid only when the scorer line itself won: exact, or within ±1.
+  scorer_exact: number;
+  scorer_close: number;
+}
+
+// One manager's Golden Bracket picks (migration 016). One row per manager, upserted
+// freely until the first QF kickoff (temporal lock in the server action).
+export interface GoldenBracket {
+  manager_id: string;
+  champion_team_id: string;
+  runner_up_team_id: string;
+  third_team_id: string;
+  fourth_team_id: string;
+  top_scorer_id: string;
+  scorer_goals: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Manager {
@@ -156,6 +198,9 @@ export interface Team {
   // Pre-tournament decimal championship odds (migration 009). Drives the favorite-team
   // underdog multiplier. Null until seeded.
   champion_odds: number | null;
+  // Fresh post-R16 outright odds (migration 016). Drives the Golden Bracket underdog
+  // multiplier. Seeded only for teams still alive at the R16; null elsewhere.
+  gb_odds: number | null;
 }
 
 // Hand-maintained injury/withdrawal flag (migration 011) — football-data.org has

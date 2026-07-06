@@ -290,3 +290,31 @@ One player from your chosen team's squad. Per match they feature in: **+15 Point
 - Favorite-player Points settle inside the per-match settle job (the favorite's match now triggers event ingestion even with no prop bet on it; every **knockout** match ingests the goal feed too, to recompute the 90' regulation score). Favorite-team milestones settle in a dedicated step that runs every cron tick, independent of which matches just finished.
 - Both are idempotent Glory ledger streams — `fav_player` (`ref_type=match`) and `team_<milestone>` (`ref_type=season`, `ref_id=WC2026`).
 - Shown on **/profile** (locked picks + the team's full ladder + Points earned so far). The daily **/today recap** itemises any favorite Points earned that slate under the points odometer and folds them into the headline total and the standings before/after. Standings/leaderboard reflect the Points automatically since they recompute from the ledger.
+
+## 11. The Golden Bracket — one-time special bet for the run-in (migration `016`)
+
+A single free special bet for every manager, opened once the eight quarter-finalists are known and **locked at the first QF kickoff**. Call the top four countries in exact order plus the tournament top scorer and their exact final goal tally. Free to play, pays Glory only (no Coins staked), settles once at tournament end. It's the catch-up mechanic for the run-in: everyone gets the same one shot, and underdog picks pay more — a trailing manager can swing for a longshot bracket while the leaders protect with chalk.
+
+### Scoring (all values in `league.config.golden_bracket`)
+
+| Line | Base | Notes |
+| --- | --- | --- |
+| Champion exactly right | 100 | × the team's underdog multiplier |
+| Runner-up exactly right | 60 | × mult |
+| Third place exactly right | 40 | × mult |
+| Fourth place exactly right | 30 | × mult |
+| Consolation: picked team finishes top-4, wrong slot | 15 | × mult; never stacks with an exact hit |
+| Top scorer right | 75 | flat; **ties count** (tied-or-sole leader by goals) |
+| Exact final goal tally | +50 | only if the scorer line won; one off pays +20 |
+
+**Underdog multiplier.** Same `√(odds/base)` formula as the favorites ladder, but fed by `teams.gb_odds` — fresh outright odds looked up after the R16 (base 2.75 = the favorite, clamp ×1.0–×5.0) — instead of the stale pre-tournament `champion_odds`. The wizard, the Today promo and settlement all read the same `gbSlotPoints`/`gbMultiplier` helpers (`src/settlement/golden-bracket.ts`), so displayed and paid values can't drift.
+
+Calibration: a perfect all-favorites bracket lands ≈420 Points; a perfect longshot bracket ≈875. Realistic partial hits (a couple of placements + the scorer) sit around 200–400 — enough to shuffle a tight top four without handing the season to one lottery ticket.
+
+### Resolution rules
+
+- **Placements** come from `matches.winner_team_id` (which reflects extra time/shootouts): final winner = champion, final loser = runner-up, third-place-playoff winner/loser = third/fourth. "Top 4" = the semi-final participants. If the third-place playoff is ever void/missing, exact third/fourth become unresolvable and those picks degrade to the consolation line.
+- **Top scorer** = tied-or-sole leader **by goals** across the whole tournament (open play + penalties, own goals never; shootout kicks never — see the ingest note in ARCHITECTURE). No FIFA assist/minutes tiebreak: a dead heat pays every manager who picked any of the leaders. The tally bonus is judged against the winning tally (`topGoals`).
+- The **pick list** is the eight remaining squads, but the **tally is global** — a player already knocked out can still end up top scorer, making the line unwinnable. The wizard says so up front.
+- **Editable until lock**, then immutable: the server action re-derives the window on every submit and refuses anything at/after the first QF kickoff. One row per manager (`golden_brackets`), no coins, no stake tiers, no bonus slots.
+- Settlement runs inside the regular settle sweep but only fires once the final is finished *and* every non-void match is settled (so the scorer tally is complete). Each winning line is one idempotent ledger row: `gb_champion`, `gb_runner_up`, `gb_third`, `gb_fourth`, `gb_top4_<slot>` (consolation), `gb_scorer`, `gb_scorer_goals` — all `ref_type=season`, `ref_id=WC2026`.

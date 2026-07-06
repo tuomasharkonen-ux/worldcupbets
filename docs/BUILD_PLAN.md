@@ -177,6 +177,19 @@ First-login onboarding: each manager locks a favorite **team** (an odds-weighted
 - [x] `/profile` shows the locked picks, the team's ladder, and Points earned so far. `/admin` gallery: "Favorites picker" + updated Profile preview.
 - [x] Daily `/today` recap itemises favorite-player + favorite-team Points under the points odometer, and folds them into the headline total **and** the standings before/after (fixing a latent rank-delta bug that previously counted only bet Points).
 
+## Phase 3.75 — The Golden Bracket: run-in special bet (migration `016`) — DONE (2026-07-06)
+
+One free special bet per manager for the QFs onward: the top four in exact order + tournament top scorer + exact goal tally, opened once the QF field is known and locked at the first QF kickoff, settled once at tournament end. Fresh post-R16 odds drive an underdog multiplier (same √ formula as favorites). See `GAME_DESIGN.md` §11.
+
+- [x] Migration `016`: `golden_brackets` table (one row per manager, pairwise-distinct CHECKs, RLS deny-all), `teams.gb_odds` (seeded for the 12 teams alive at R16, odds looked up 2026-07-06), `config.golden_bracket`.
+- [x] Pure settlement (`src/settlement/golden-bracket.ts`): `gbMultiplier`, `gbSlotPoints` (shared with the wizard), `resolvePlacements`, `topScorers` (tied-or-sole by goals), `goldenBracketDeltas` — 25 unit tests.
+- [x] `settleGoldenBracket()` in the settle sweep: no-op until the final is finished + every non-void match settled, then one idempotent `gb_*` season ledger row per winning line.
+- [x] `/golden-bracket` wizard (intro → bracket → scorer → review; swap-on-conflict slot picker, Boot-race-sorted scorer list with goals/apps, live point values, editable-until-lock) + `submitGoldenBracket` action (window re-derived server-side, temporal lock, full validation).
+- [x] `/today` promo above the match list in betting/allset/settling states: full CTA → compact "bracket's in" → post-lock "view" (hidden if never placed).
+- [x] `/admin` gallery: "Golden Bracket" group (promo states + all wizard steps + submitted/locked) on mock data with the real odds table.
+- [x] Fixed on the way: AF **shootout kicks ingested as goals** (`afEventToRow` now skips `comments: 'Penalty Shootout'`, extracted pure into `settlement/af-events.ts` + tested) — two settled R32 shootouts carried phantom scorer goals; repair via `settle-backfill?match=<id>` post-deploy.
+- [ ] Follow-up before the final: fold + itemise `gb_*` rows into the final slate's recap (`buildRecap` currently only folds bets + favorites).
+
 ## Phase 4 — Stat Leader prop (Sofascore)
 
 Goal: the granular layer, isolated behind an interface so its flakiness can't break settlement.

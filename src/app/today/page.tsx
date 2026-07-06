@@ -17,6 +17,8 @@ import { ShareBetsButton } from './ShareBetsButton';
 import { Social } from './Social';
 import { buildSocialData } from './social-data';
 import { markRecapSeen } from './actions';
+import { GoldenBracketPromo, type GoldenBracketPromoState } from './GoldenBracketPromo';
+import { getGoldenBracketWindow } from '@/lib/golden-bracket';
 import { nudgeSettlement } from '@/settlement/run';
 import type {
   Bet,
@@ -154,6 +156,27 @@ export default async function TodayPage() {
     }
   }
 
+  // ─── golden bracket promo ────────────────────────────────────────────────────
+  // Live from the moment the 8 quarter-finalists are known (migration 016). Full CTA
+  // until this manager has a bracket in, compact "edit" once they do, quiet "view"
+  // after the lock — and gone after the lock for anyone who never placed one.
+  let gbPromo: { state: GoldenBracketPromoState; lockAt: string } | null = null;
+  if (league?.config.golden_bracket) {
+    const gbWindow = await getGoldenBracketWindow();
+    if (gbWindow) {
+      const { count: gbCount } = await db
+        .from('golden_brackets')
+        .select('manager_id', { count: 'exact', head: true })
+        .eq('manager_id', managerId);
+      const submitted = (gbCount ?? 0) > 0;
+      if (now < new Date(gbWindow.lockAt)) {
+        gbPromo = { state: submitted ? 'submitted' : 'open', lockAt: gbWindow.lockAt };
+      } else if (submitted) {
+        gbPromo = { state: 'locked', lockAt: gbWindow.lockAt };
+      }
+    }
+  }
+
   let slateKey = currentSlateKey(now, rollover);
   let members = await fetchSlateMembers(slateKey, rollover);
 
@@ -249,6 +272,7 @@ export default async function TodayPage() {
     return (
       <Shell>
         <SlateHeader slateKey={slateKey} />
+        {gbPromo && <GoldenBracketPromo state={gbPromo.state} lockAt={gbPromo.lockAt} />}
         <Card variant="glass" padding="lg" className="space-y-4 text-center">
           <Loader2 className="mx-auto size-8 animate-spin text-primary-bright" aria-hidden />
           <div>
@@ -438,6 +462,8 @@ export default async function TodayPage() {
   return (
     <Shell>
       <SlateHeader slateKey={slateKey} isUpcoming={isUpcoming} />
+
+      {gbPromo && <GoldenBracketPromo state={gbPromo.state} lockAt={gbPromo.lockAt} />}
 
       {state === 'allset' ? (
         <div className="flex flex-col items-center gap-3 py-3 text-center">

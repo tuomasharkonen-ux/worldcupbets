@@ -20,7 +20,10 @@ import { CurrencyDelta } from './types';
 // dampens the spread (a 100× longshot pays ~10×, not 100×) and the clamp caps the
 // jackpot so a true minnow can't break the leaderboard. The top favorite (odds ==
 // base_odds) lands on min_mult, i.e. 1.0.
-export function teamMultiplier(odds: number | null | undefined, fav: FavoritesConfig): number {
+// The param is structural (just the odds→mult knobs) so the Golden Bracket config
+// (migration 016) can reuse the exact same formula against teams.gb_odds.
+export type OddsMultiplierConfig = Pick<FavoritesConfig, 'base_odds' | 'min_mult' | 'max_mult'>;
+export function teamMultiplier(odds: number | null | undefined, fav: OddsMultiplierConfig): number {
   if (odds == null || odds <= 0) return fav.min_mult;
   const raw = Math.sqrt(odds / fav.base_odds);
   const rounded = Math.round(raw * 2) / 2;

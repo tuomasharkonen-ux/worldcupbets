@@ -4,7 +4,9 @@ import { useState } from 'react';
 import {
   Home, CheckCircle2, Loader2, Coffee, Sparkles,
   Ticket, Trophy, CalendarDays, CalendarClock, CalendarX, KeyRound, AlertCircle, Palette, FlaskConical, UserCircle, Star,
+  Crown, Megaphone, Target, ListChecks, Lock,
 } from 'lucide-react';
+import { GoldenBracketScreen } from './previews/GoldenBracketScreen';
 import { TodayScreen } from './previews/TodayScreen';
 import { FixturesScreen } from './previews/FixturesScreen';
 import { LeaderboardScreen } from './previews/LeaderboardScreen';
@@ -54,6 +56,18 @@ const GROUPS: Group[] = [
     group: 'League',
     views: [
       { key: 'leaderboard', label: 'Leaderboard', Icon: Trophy, render: () => <LeaderboardScreen /> },
+    ],
+  },
+  {
+    group: 'Golden Bracket',
+    views: [
+      { key: 'gb-promo', label: 'Today promo (all states)', Icon: Megaphone, render: () => <GoldenBracketScreen variant="promo" /> },
+      { key: 'gb-intro', label: 'Intro', Icon: Crown, render: () => <GoldenBracketScreen variant="intro" /> },
+      { key: 'gb-bracket', label: 'Bracket picks', Icon: Trophy, render: () => <GoldenBracketScreen variant="bracket" /> },
+      { key: 'gb-scorer', label: 'Top scorer', Icon: Target, render: () => <GoldenBracketScreen variant="scorer" /> },
+      { key: 'gb-review', label: 'Review slip', Icon: ListChecks, render: () => <GoldenBracketScreen variant="review" /> },
+      { key: 'gb-submitted', label: 'Submitted', Icon: CheckCircle2, render: () => <GoldenBracketScreen variant="submitted" /> },
+      { key: 'gb-locked', label: 'Locked', Icon: Lock, render: () => <GoldenBracketScreen variant="locked" /> },
     ],
   },
   {

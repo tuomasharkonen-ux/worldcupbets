@@ -4,18 +4,21 @@
 // instantly and deterministically. The shapes mirror the real types in
 // @/types/db so the previews feed the *actual* components (Recap, BetSlip, …).
 
-import type { Bet, BetStatus, Match, Team } from '@/types/db';
+import type { Bet, BetStatus, GoldenBracketConfig, Match, Team } from '@/types/db';
 import type { RecapData } from '@/app/today/Recap';
 import type { SocialData } from '@/app/today/Social';
 import type { SlipSquads, SlipPlayer } from '@/app/matches/[matchId]/BetSlip';
 import type { StakeTier } from '@/app/matches/[matchId]/StakeSelector';
+import type { GbTeamOption, GbScorerOption } from '@/lib/golden-bracket';
+import type { GoldenBracketPayload } from '@/app/golden-bracket/actions';
+import { gbMultiplier, gbSlotPoints } from '@/settlement/golden-bracket';
 
 export type MatchRow = Match & { home_team: Team; away_team: Team };
 
 // ─── primitives ──────────────────────────────────────────────────────────────
 
-function team(id: string, name: string, code: string, odds: number | null = null): Team {
-  return { id, name, country_code: code, flag_url: null, fd_team_id: null, sofa_team_id: null, af_team_id: null, champion_odds: odds };
+function team(id: string, name: string, code: string, odds: number | null = null, gbOdds: number | null = null): Team {
+  return { id, name, country_code: code, flag_url: null, fd_team_id: null, sofa_team_id: null, af_team_id: null, champion_odds: odds, gb_odds: gbOdds };
 }
 
 export const TEAMS = {
@@ -613,3 +616,76 @@ export function finishedMatchData(): FinishedMatchData {
     playerName: new Map([['b-8', 'Vinícius Jr.']]),
   };
 }
+
+// ─── Golden Bracket (migration 016) ─────────────────────────────────────────────
+
+// Mirrors the live config seeded by 016 — and doubles as an eyeball check of the
+// odds → multiplier table (the preview computes mults with the real formula).
+export const MOCK_GB_CONFIG: GoldenBracketConfig = {
+  base_odds: 2.75,
+  min_mult: 1.0,
+  max_mult: 5.0,
+  slots: { champion: 100, runner_up: 60, third: 40, fourth: 30 },
+  consolation: 15,
+  scorer_player: 75,
+  scorer_exact: 50,
+  scorer_close: 20,
+};
+
+export const MOCK_GB_LOCK_AT = '2026-07-09T19:00:00Z';
+
+function gbTeam(id: string, name: string, code: string, odds: number): GbTeamOption {
+  const mult = gbMultiplier(odds, MOCK_GB_CONFIG);
+  return { id, name, country_code: code, mult, points: gbSlotPoints(MOCK_GB_CONFIG, mult) };
+}
+
+// A plausible QF field with the real post-R16 odds, sorted favorites-first like the
+// live loader.
+export const MOCK_GB_TEAMS: GbTeamOption[] = [
+  gbTeam('t-fra', 'France', 'FRA', 2.75),
+  gbTeam('t-arg', 'Argentina', 'ARG', 5.4),
+  gbTeam('t-eng', 'England', 'ENG', 6.5),
+  gbTeam('t-esp', 'Spain', 'ESP', 7.5),
+  gbTeam('t-por', 'Portugal', 'POR', 20),
+  gbTeam('t-col', 'Colombia', 'COL', 21),
+  gbTeam('t-mar', 'Morocco', 'MAR', 30),
+  gbTeam('t-nor', 'Norway', 'NOR', 34),
+];
+
+function gbScorer(
+  id: string,
+  teamId: string,
+  name: string,
+  position: string | null,
+  goals: number,
+  apps: number,
+  availability: 'fit' | 'doubtful' | 'out' = 'fit',
+): GbScorerOption {
+  return { id, teamId, name, position, availability, goals, apps };
+}
+
+// Boot race on top (the live loader sorts goals desc, apps desc), long tail below.
+export const MOCK_GB_SCORERS: GbScorerOption[] = [
+  gbScorer('gb-mbappe', 't-fra', 'Kylian Mbappé', 'Forward', 7, 5),
+  gbScorer('gb-messi', 't-arg', 'Lionel Messi', 'Forward', 7, 5),
+  gbScorer('gb-haaland', 't-nor', 'Erling Haaland', 'Forward', 7, 5),
+  gbScorer('gb-kane', 't-eng', 'Harry Kane', 'Forward', 6, 5),
+  gbScorer('gb-oyarzabal', 't-esp', 'Mikel Oyarzabal', 'Forward', 4, 5),
+  gbScorer('gb-dembele', 't-fra', 'Ousmane Dembélé', 'Forward', 4, 5),
+  gbScorer('gb-james', 't-col', 'James Rodríguez', 'Midfielder', 3, 5),
+  gbScorer('gb-ramos', 't-por', 'Gonçalo Ramos', 'Forward', 2, 4, 'doubtful'),
+  gbScorer('gb-ennesyri', 't-mar', 'Youssef En-Nesyri', 'Forward', 2, 5),
+  gbScorer('gb-alvarez', 't-arg', 'Julián Álvarez', 'Forward', 2, 5),
+  gbScorer('gb-saka', 't-eng', 'Bukayo Saka', 'Forward', 1, 5),
+  gbScorer('gb-pedri', 't-esp', 'Pedri', 'Midfielder', 0, 5),
+  gbScorer('gb-hakimi', 't-mar', 'Achraf Hakimi', 'Defender', 0, 5, 'out'),
+];
+
+export const MOCK_GB_PICK: GoldenBracketPayload = {
+  champion: 't-esp',
+  runnerUp: 't-fra',
+  third: 't-mar',
+  fourth: 't-eng',
+  scorerId: 'gb-mbappe',
+  scorerGoals: 9,
+};
