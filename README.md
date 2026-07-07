@@ -30,7 +30,7 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 5. **Banter** — once your own slip is in, the all-set screen reveals a read-only **everyone's bets** digest for the day (scores, outcomes, stakes, bonus bets) and, below it, a slate-scoped **comments feed**: text, GIFs (Giphy search), and a fixed palette of emoji reactions on comments. Another manager's bets only become visible for a match once you've bet on it yourself (or it has kicked off), so nobody can copy picks. Both stick around through the settling state and reset with the next slate.
 6. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Points movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
 7. **Leaderboard** — managers ranked by Points.
-8. **Share** — once your slate is in, the all-set screen offers a **Share my bets** button that copies a compact, emoji-flag digest of your picks to the clipboard (Wordle-style, ready to paste into WhatsApp); the morning recap offers **Share my results** — a spoiler-free 🟩/⬛/⬜ grid with your points and leaderboard move. Both end in a link back to the game.
+8. **Share** — once your slate is in, the all-set screen offers a **Share my bets** button that copies a compact, emoji-flag digest of your picks to the clipboard (Wordle-style, ready to paste into WhatsApp); the morning recap offers **Share my results** — a spoiler-free 🟩/⬛/⬜ grid with your points and leaderboard move; and once your Golden Bracket is in, its summary offers **Share my bracket** — the four placements in order plus your top-scorer call. All end in a link back to the game.
 
 ## Project layout
 

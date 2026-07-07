@@ -48,3 +48,23 @@ export function buildSlateShareText(
   lines.push('', '🔗 https://worldcupbets.vercel.app');
   return lines.join('\n');
 }
+
+// The Golden Bracket digest: the four placements in order, then the top-scorer call.
+// Same pure/no-I/O contract as buildSlateShareText so the wizard (client) and the
+// /admin preview share one formatter. `teams` is [champion, runner-up, third, fourth];
+// any null slot is skipped (defensive — a submitted bracket is always complete).
+export function buildGoldenBracketShareText(
+  teams: (ShareTeam | null)[],
+  scorer: { name: string; goals: number } | null,
+): string {
+  const slotEmoji = ['🥇', '🥈', '🥉', '4️⃣'];
+  const lines: string[] = ['👑 My Golden Bracket', ''];
+  teams.forEach((t, i) => {
+    if (!t) return;
+    const flag = toFlagEmoji(t.name, t.country_code);
+    lines.push(`${slotEmoji[i] ?? '•'} ${flag ? `${flag} ` : ''}${t.name}`);
+  });
+  if (scorer) lines.push('', `⚽ Top scorer: ${scorer.name} (${scorer.goals})`);
+  lines.push('', '🔗 https://worldcupbets.vercel.app');
+  return lines.join('\n');
+}

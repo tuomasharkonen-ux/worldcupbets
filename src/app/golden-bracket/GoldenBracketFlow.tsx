@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, useTransition } from 'react';
+import Link from 'next/link';
 import {
   ArrowLeft,
   ArrowRight,
@@ -29,11 +30,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Countdown } from '@/components/Countdown';
+import { ShareBetsButton } from '@/app/today/ShareBetsButton';
+import { buildGoldenBracketShareText } from '@/lib/share';
 import type { GbTeamOption, GbScorerOption } from '@/lib/golden-bracket';
 import type { GoldenBracketConfig } from '@/types/db';
 import { submitGoldenBracket, type GoldenBracketPayload } from './actions';
 
-export type GbStep = 'intro' | 'bracket' | 'scorer' | 'review';
+export type GbStep = 'bracket' | 'scorer' | 'review';
 
 type Slot = 'champion' | 'runnerUp' | 'third' | 'fourth';
 
@@ -84,7 +87,7 @@ export function GoldenBracketFlow({
 }: GoldenBracketFlowProps) {
   const startInSummary = initialStep === 'summary' || (initialStep == null && (myPick != null || locked));
   const [inWizard, setInWizard] = useState(!startInSummary);
-  const [step, setStep] = useState<GbStep>(initialStep && initialStep !== 'summary' ? initialStep : 'intro');
+  const [step, setStep] = useState<GbStep>(initialStep && initialStep !== 'summary' ? initialStep : 'bracket');
   const [picks, setPicks] = useState<Record<Slot, string | null>>({
     champion: myPick?.champion ?? null,
     runnerUp: myPick?.runnerUp ?? null,
@@ -116,6 +119,18 @@ export function GoldenBracketFlow({
     }
     return total;
   }, [picks, teamById, cfg]);
+
+  const shareText = useMemo(
+    () =>
+      buildGoldenBracketShareText(
+        SLOTS.map(({ slot }) => {
+          const t = picks[slot] ? teamById.get(picks[slot]!) : null;
+          return t ? { name: t.name, country_code: t.country_code } : null;
+        }),
+        scorer && scorerGoals != null ? { name: scorer.name, goals: scorerGoals } : null,
+      ),
+    [picks, teamById, scorer, scorerGoals],
+  );
 
   function selectTeam(slot: Slot, teamId: string) {
     setPicks(prev => {
@@ -199,20 +214,38 @@ export function GoldenBracketFlow({
           perfectTotal={perfectTotal}
         />
 
-        {!locked && (
-          <Button
-            type="button"
-            size="lg"
-            variant="glass"
-            className="w-full"
-            onClick={() => {
-              setInWizard(true);
-              setStep('bracket');
-            }}
-          >
-            <Pencil className="size-4" aria-hidden />
-            Edit your bracket
+        <ShareBetsButton text={shareText} label="Share my bracket" />
+
+        {locked ? (
+          <Button asChild size="lg" variant="glass" className="w-full">
+            <Link href="/today">
+              Back to Today
+              <ArrowRight className="size-5" aria-hidden />
+            </Link>
           </Button>
+        ) : (
+          <>
+            {/* The forward step: the bracket is a side bet — send them on to the day's slate. */}
+            <Button asChild size="lg" variant="primary" className="w-full">
+              <Link href="/today">
+                Place your match bets
+                <ArrowRight className="size-5" aria-hidden />
+              </Link>
+            </Button>
+            <Button
+              type="button"
+              size="lg"
+              variant="glass"
+              className="w-full"
+              onClick={() => {
+                setInWizard(true);
+                setStep('bracket');
+              }}
+            >
+              <Pencil className="size-4" aria-hidden />
+              Edit your bracket
+            </Button>
+          </>
         )}
       </div>
     );
@@ -225,51 +258,14 @@ export function GoldenBracketFlow({
       <header className="space-y-2 text-center">
         <GoldenBadge />
         <h1 className="text-glow font-display text-3xl font-bold tracking-tight text-foreground">
-          {step === 'intro' && 'The Golden Bracket'}
           {step === 'bracket' && 'Call the top four'}
           {step === 'scorer' && 'Call the top scorer'}
           {step === 'review' && 'Your golden slip'}
         </h1>
-        {step !== 'intro' && <Countdown target={lockAt} label="Locks in" liveLabel="Locked" />}
+        <Countdown target={lockAt} label="Locks in" liveLabel="Locked" />
       </header>
 
-      {step !== 'intro' && <Steps step={step} />}
-
-      {step === 'intro' && (
-        <>
-          <Card variant="glass" padding="lg" className="space-y-4">
-            <p className="text-sm text-muted">
-              One special bet for everyone, on the whole run-in: name the top four countries in exact order,
-              plus the tournament’s top scorer and their final goal tally. Free to play, pays Points only —
-              and it locks at the first quarter-final kickoff.
-            </p>
-            <ul className="space-y-2.5 text-sm">
-              <IntroRule Icon={Crown}>
-                Exact placements pay big: champion <Pts n={cfg.slots.champion} />, runner-up{' '}
-                <Pts n={cfg.slots.runner_up} />, third <Pts n={cfg.slots.third} />, fourth{' '}
-                <Pts n={cfg.slots.fourth} /> — each multiplied by your team’s underdog odds, up to ×
-                {cfg.max_mult}.
-              </IntroRule>
-              <IntroRule Icon={Trophy}>
-                Right team, wrong spot still pays <Pts n={cfg.consolation} /> × multiplier if they finish top
-                four.
-              </IntroRule>
-              <IntroRule Icon={Target}>
-                Top scorer pays <Pts n={cfg.scorer_player} /> — ties count. Nail their exact final goal tally
-                for <Pts n={cfg.scorer_exact} /> more (one off: <Pts n={cfg.scorer_close} />).
-              </IntroRule>
-            </ul>
-            <p className="border-t border-border pt-3 text-xs text-subtle">
-              Everyone gets exactly one bracket. Edit it as often as you like before the lock.
-            </p>
-          </Card>
-          <Countdown target={lockAt} label="Locks in" liveLabel="Locked" />
-          <Button type="button" size="lg" variant="points" className="w-full" onClick={() => setStep('bracket')}>
-            Build your bracket
-            <ArrowRight className="size-5" aria-hidden />
-          </Button>
-        </>
-      )}
+      <Steps step={step} />
 
       {step === 'bracket' && (
         <>
@@ -533,21 +529,6 @@ function GoldenBadge() {
     <span className="mx-auto grid size-14 place-items-center rounded-3xl bg-points text-[#0a1e12] shadow-[0_5px_0_0_var(--color-points-press)]">
       <Trophy className="size-7" aria-hidden />
     </span>
-  );
-}
-
-function Pts({ n }: { n: number }) {
-  return <span className="font-mono font-semibold text-points">+{n}</span>;
-}
-
-function IntroRule({ Icon, children }: { Icon: typeof Crown; children: React.ReactNode }) {
-  return (
-    <li className="flex items-start gap-2.5">
-      <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg bg-surface-2 text-points">
-        <Icon className="size-3.5" aria-hidden />
-      </span>
-      <span className="text-muted">{children}</span>
-    </li>
   );
 }
 
