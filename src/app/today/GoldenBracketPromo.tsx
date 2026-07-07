@@ -15,11 +15,14 @@ export type GoldenBracketPromoState = 'open' | 'submitted' | 'locked';
 export function GoldenBracketPromo({
   state,
   lockAt,
+  compact = false,
 }: {
   state: GoldenBracketPromoState;
   lockAt: string;
+  /** Force the small one-line row even for the open state (used on the schedule). */
+  compact?: boolean;
 }) {
-  if (state === 'open') {
+  if (state === 'open' && !compact) {
     return (
       <Card
         variant="glass"
@@ -58,13 +61,28 @@ export function GoldenBracketPromo({
       </span>
       <div className="min-w-0 flex-1">
         <p className="font-display text-sm font-semibold text-foreground">
-          {state === 'submitted' ? 'Golden Bracket’s in' : 'Golden Bracket locked'}
+          {state === 'open'
+            ? 'The Golden Bracket'
+            : state === 'submitted'
+              ? 'Golden Bracket’s in'
+              : 'Golden Bracket locked'}
         </p>
         <p className="text-xs text-muted">
-          {state === 'submitted' ? 'Edit until the first quarter-final kicks off.' : 'Points land when the tournament wraps.'}
+          {state === 'open'
+            ? 'One free shot on the run-in — call the top four before the first quarter-final.'
+            : state === 'submitted'
+              ? 'Edit until the first quarter-final kicks off.'
+              : 'Points land when the tournament wraps.'}
         </p>
       </div>
-      {state === 'submitted' ? (
+      {state === 'open' ? (
+        <Button asChild size="sm" variant="points" className="shrink-0">
+          <Link href="/golden-bracket">
+            <Trophy className="size-4" aria-hidden />
+            Make your bracket
+          </Link>
+        </Button>
+      ) : state === 'submitted' ? (
         <Button asChild size="sm" variant="glass" className="shrink-0">
           <Link href="/golden-bracket">
             <Pencil className="size-4" aria-hidden />

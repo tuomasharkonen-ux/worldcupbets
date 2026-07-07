@@ -1,13 +1,16 @@
 'use client';
 
+import { Fragment } from 'react';
 import Link from 'next/link';
-import { CalendarDays, Clock, Lock, CircleDot, Ticket } from 'lucide-react';
+import { CalendarDays, Clock, Lock, CircleDot, Ticket, Trophy } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Flag } from '@/components/ui/flag';
+import { GoldenBracketPromo } from '@/app/today/GoldenBracketPromo';
 import { currentSlateKey, slateKeyOf } from '@/lib/slate';
+import { STAGE_LABEL, isFeatureStage } from '@/lib/stage';
 import { ScreenFrame } from './ScreenFrame';
-import { fixturesData, type MatchRow } from '../mock';
+import { fixturesData, MOCK_GB_LOCK_AT, type MatchRow } from '../mock';
 
 const TIMEZONE = 'Europe/Helsinki';
 // NA zone used only to group matches into match days — never shown to the user.
@@ -58,18 +61,31 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
     else groups.push({ key, matches: [m] });
   }
 
+  // The Golden Bracket promo leads into the knockouts on the real page — mirror that
+  // here by dropping the compact promo just above the first quarter-final group.
+  const qfGroupIdx = groups.findIndex(g => g.matches.some(m => m.stage === 'qf'));
+
   function MatchInner({ m, today }: { m: MatchRow; today: boolean }) {
     const betTypes = betsPerMatch.get(m.id);
     const hasBets = betTypes && betTypes.size > 0;
     const isFinished = m.status === 'finished';
     const isLocked = now >= new Date(m.kickoff_at);
+    const stageLabel = m.group_label ? `Group ${m.group_label}` : STAGE_LABEL[m.stage];
+    const feature = !m.group_label && isFeatureStage(m.stage);
 
     return (
       <>
         <div className="flex items-center justify-between">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
-            {m.group_label ? `Group ${m.group_label}` : m.stage}
-          </span>
+          {feature ? (
+            <Badge variant="points" size="sm">
+              {m.stage === 'final' && <Trophy aria-hidden />}
+              {stageLabel}
+            </Badge>
+          ) : (
+            <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
+              {stageLabel}
+            </span>
+          )}
           {isFinished ? (
             <Badge variant="finished" size="sm">FT</Badge>
           ) : today ? (
@@ -117,14 +133,26 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
 
   function MatchItem({ m }: { m: MatchRow }) {
     const today = isToday(m);
+    const feature = isFeatureStage(m.stage);
     if (today) {
       return (
         <Link
           href="#"
-          className="glass group flex flex-col gap-3 rounded-2xl px-4 py-3.5 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-border-strong"
+          className={`glass group flex flex-col gap-3 rounded-2xl px-4 py-3.5 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 ${
+            feature
+              ? 'border-points/45 bg-gradient-to-br from-points/10 to-transparent hover:border-points'
+              : 'hover:border-border-strong'
+          }`}
         >
           <MatchInner m={m} today />
         </Link>
+      );
+    }
+    if (feature) {
+      return (
+        <div className="flex flex-col gap-3 rounded-2xl border border-points/30 bg-gradient-to-br from-points/[0.08] to-transparent px-4 py-3.5">
+          <MatchInner m={m} today={false} />
+        </div>
       );
     }
     return (
@@ -155,21 +183,24 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
           </Card>
         ) : (
           groups.map((group, i) => (
-            <section key={group.key} className="space-y-3">
-              <div className="flex items-baseline justify-between border-b border-border pb-1.5">
-                <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
-                  Match day {i + 1}
-                </h2>
-                <span className="text-xs font-medium uppercase tracking-wider text-subtle">
-                  {naDayLabel(group.key)}
-                </span>
-              </div>
-              <div className="space-y-2.5">
-                {group.matches.map(m => (
-                  <MatchItem key={m.id} m={m} />
-                ))}
-              </div>
-            </section>
+            <Fragment key={group.key}>
+              {i === qfGroupIdx && <GoldenBracketPromo state="open" lockAt={MOCK_GB_LOCK_AT} compact />}
+              <section className="space-y-3">
+                <div className="flex items-baseline justify-between border-b border-border pb-1.5">
+                  <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
+                    Match day {i + 1}
+                  </h2>
+                  <span className="text-xs font-medium uppercase tracking-wider text-subtle">
+                    {naDayLabel(group.key)}
+                  </span>
+                </div>
+                <div className="space-y-2.5">
+                  {group.matches.map(m => (
+                    <MatchItem key={m.id} m={m} />
+                  ))}
+                </div>
+              </section>
+            </Fragment>
           ))
         )}
       </main>

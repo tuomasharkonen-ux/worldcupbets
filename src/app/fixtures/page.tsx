@@ -1,16 +1,20 @@
+import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
 import Link from 'next/link';
-import { CalendarDays, Clock, Lock, CircleDot, Ticket } from 'lucide-react';
+import { CalendarDays, Clock, Lock, CircleDot, Ticket, Trophy } from 'lucide-react';
 import { getSession, requireOnboarded } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Flag } from '@/components/ui/flag';
+import { GoldenBracketPromo, type GoldenBracketPromoState } from '@/app/today/GoldenBracketPromo';
 import { currentSlateKey, slateKeyOf } from '@/lib/slate';
 import { naDayKey, naDayLabel } from '@/lib/matchday';
+import { STAGE_LABEL, isFeatureStage } from '@/lib/stage';
 import type { League, Match, Team } from '@/types/db';
+import { ScrollToAnchor } from './ScrollToAnchor';
 
 // Times are shown to our (Helsinki-based) audience in Helsinki time; matches are grouped
 // into match days by NA calendar day (see @/lib/matchday).
@@ -95,20 +99,58 @@ export default async function FixturesPage() {
     else groups.push({ key, matches: [m] });
   }
 
+  // Golden Bracket promo — derived from the fixtures we already loaded (no extra
+  // matches read): the window opens once all 8 quarter-finalists are known and locks
+  // at the first QF kickoff. Only "have I submitted?" needs a fresh (head-only) read.
+  const qfMatches = matches.filter(m => m.stage === 'qf');
+  const qfTeams = new Set(qfMatches.flatMap(m => [m.home_team_id, m.away_team_id]));
+  let gbPromo: { state: GoldenBracketPromoState; lockAt: string } | null = null;
+  if (league?.config.golden_bracket && qfTeams.size === 8) {
+    const lockAt = qfMatches[0].kickoff_at;
+    const { count } = await db
+      .from('golden_brackets')
+      .select('manager_id', { count: 'exact', head: true })
+      .eq('manager_id', session.managerId!);
+    const submitted = (count ?? 0) > 0;
+    if (nowDate < new Date(lockAt)) gbPromo = { state: submitted ? 'submitted' : 'open', lockAt };
+    else if (submitted) gbPromo = { state: 'locked', lockAt };
+  }
+
+  // Where to land on open: the first match day with an unfinished match (the current
+  // / next day) so you don't scroll past everything already played. The promo, when
+  // live, sits just above the QF group and takes the anchor when that's the next day.
+  const ANCHOR = 'sched-next';
+  const nextIdx = (() => {
+    const i = groups.findIndex(g => g.matches.some(m => m.status !== 'finished'));
+    return i === -1 ? Math.max(groups.length - 1, 0) : i;
+  })();
+  const qfGroupIdx = gbPromo ? groups.findIndex(g => g.matches.some(m => m.stage === 'qf')) : -1;
+  const promoIdx = gbPromo ? (qfGroupIdx === -1 ? nextIdx : qfGroupIdx) : -1;
+  const anchorOnPromo = promoIdx === nextIdx;
+
   // Inner card/row content — shared between the clickable (today) and plain layouts.
   function MatchInner({ m, today }: { m: MatchRow; today: boolean }) {
     const betTypes = betsPerMatch.get(m.id);
     const hasBets = betTypes && betTypes.size > 0;
     const isFinished = m.status === 'finished';
     const isLocked = nowDate >= new Date(m.kickoff_at);
+    const stageLabel = m.group_label ? `Group ${m.group_label}` : STAGE_LABEL[m.stage];
+    const feature = !m.group_label && isFeatureStage(m.stage);
 
     return (
       <>
         {/* Top: stage + status */}
         <div className="flex items-center justify-between">
-          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
-            {m.group_label ? `Group ${m.group_label}` : m.stage}
-          </span>
+          {feature ? (
+            <Badge variant="points" size="sm">
+              {m.stage === 'final' && <Trophy aria-hidden />}
+              {stageLabel}
+            </Badge>
+          ) : (
+            <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">
+              {stageLabel}
+            </span>
+          )}
           {isFinished ? (
             <Badge variant="finished" size="sm">FT</Badge>
           ) : today ? (
@@ -160,14 +202,28 @@ export default async function FixturesPage() {
   // container-less rows — read-only schedule info.
   function MatchItem({ m }: { m: MatchRow }) {
     const today = isToday(m);
+    const feature = isFeatureStage(m.stage);
     if (today) {
       return (
         <Link
           href={`/matches/${m.id}`}
-          className="glass group flex flex-col gap-3 rounded-2xl px-4 py-3.5 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 hover:border-border-strong"
+          className={`glass group flex flex-col gap-3 rounded-2xl px-4 py-3.5 transition-[transform,border-color] duration-150 hover:-translate-y-0.5 ${
+            feature
+              ? 'border-points/45 bg-gradient-to-br from-points/10 to-transparent hover:border-points'
+              : 'hover:border-border-strong'
+          }`}
         >
           <MatchInner m={m} today />
         </Link>
+      );
+    }
+    // The marquee knockout rounds get an emphasised box so they stand out from the
+    // plain, container-less rows the rest of the (read-only) schedule uses.
+    if (feature) {
+      return (
+        <div className="flex flex-col gap-3 rounded-2xl border border-points/30 bg-gradient-to-br from-points/[0.08] to-transparent px-4 py-3.5">
+          <MatchInner m={m} today={false} />
+        </div>
       );
     }
     return (
@@ -200,24 +256,39 @@ export default async function FixturesPage() {
             No fixtures yet — the sync job will populate them.
           </Card>
         ) : (
-          groups.map((group, i) => (
-            <section key={group.key} className="space-y-3">
-              <div className="flex items-baseline justify-between border-b border-border pb-1.5">
-                <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
-                  Match day {i + 1}
-                </h2>
-                <span className="text-xs font-medium uppercase tracking-wider text-subtle">
-                  {naDayLabel(group.key)}
-                </span>
-              </div>
-              <div className="space-y-2.5">
-                {group.matches.map(m => (
-                  <MatchItem key={m.id} m={m} />
-                ))}
-              </div>
-            </section>
-          ))
+          groups.map((group, i) => {
+            const showPromoHere = gbPromo != null && promoIdx === i;
+            const groupIsAnchor = i === nextIdx && !(showPromoHere && anchorOnPromo);
+            return (
+              <Fragment key={group.key}>
+                {showPromoHere && (
+                  <div id={anchorOnPromo ? ANCHOR : undefined} className={anchorOnPromo ? 'scroll-mt-20' : undefined}>
+                    <GoldenBracketPromo state={gbPromo!.state} lockAt={gbPromo!.lockAt} compact />
+                  </div>
+                )}
+                <section
+                  id={groupIsAnchor ? ANCHOR : undefined}
+                  className={`space-y-3 ${groupIsAnchor ? 'scroll-mt-20' : ''}`}
+                >
+                  <div className="flex items-baseline justify-between border-b border-border pb-1.5">
+                    <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
+                      Match day {i + 1}
+                    </h2>
+                    <span className="text-xs font-medium uppercase tracking-wider text-subtle">
+                      {naDayLabel(group.key)}
+                    </span>
+                  </div>
+                  <div className="space-y-2.5">
+                    {group.matches.map(m => (
+                      <MatchItem key={m.id} m={m} />
+                    ))}
+                  </div>
+                </section>
+              </Fragment>
+            );
+          })
         )}
+        {groups.length > 0 && <ScrollToAnchor targetId={ANCHOR} />}
       </main>
     </>
   );

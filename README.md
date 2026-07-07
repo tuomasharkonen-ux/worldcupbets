@@ -41,7 +41,7 @@ src/
     join/                 passcode + PIN login/signup flow (page + server action)
     onboarding/           first-login favorite team + player picker (page + client picker + action)
     profile/              edit name, avatar, PIN, view locked favorites; sign out (page + server actions)
-    fixtures/             full schedule grouped by NA match day (read-only; only today's slate is tappable)
+    fixtures/             full schedule grouped by NA match day (read-only; only today's slate is tappable); QF/SF/Final rows are emphasised, opens scrolled to the next match, and carries the compact Golden Bracket promo into the knockouts
     matches/[matchId]/    bet slip (page + BetSlip client component + action)
     golden-bracket/       one-time Golden Bracket special bet wizard (page + flow + action)
     leaderboard/          Points + Coins ranking

@@ -27,6 +27,10 @@ export function GoldenBracketScreen({ variant }: { variant: GoldenBracketVariant
           <GoldenBracketPromo state="open" lockAt={MOCK_GB_LOCK_AT} />
           <GoldenBracketPromo state="submitted" lockAt={MOCK_GB_LOCK_AT} />
           <GoldenBracketPromo state="locked" lockAt={MOCK_GB_LOCK_AT} />
+          {/* Compact row — used on the schedule page. */}
+          <GoldenBracketPromo state="open" lockAt={MOCK_GB_LOCK_AT} compact />
+          <GoldenBracketPromo state="submitted" lockAt={MOCK_GB_LOCK_AT} compact />
+          <GoldenBracketPromo state="locked" lockAt={MOCK_GB_LOCK_AT} compact />
         </main>
       </ScreenFrame>
     );

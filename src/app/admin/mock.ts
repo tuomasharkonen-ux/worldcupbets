@@ -562,6 +562,10 @@ export function fixturesData(): FixturesData {
     match('f-4', TEAMS.england, TEAMS.usa, '2026-06-16T19:00:00Z', { group_label: 'F' }),
     match('f-5', TEAMS.portugal, TEAMS.morocco, '2026-06-17T19:00:00Z', { group_label: 'G' }),
     match('f-6', TEAMS.argentina, TEAMS.germany, '2026-06-18T19:00:00Z', { stage: 'r16', group_label: null }),
+    // The marquee knockout rounds — emphasised in the schedule list.
+    match('k-qf', TEAMS.brazil, TEAMS.france, '2026-07-09T19:00:00Z', { stage: 'qf', group_label: null }),
+    match('k-sf', TEAMS.spain, TEAMS.argentina, '2026-07-14T19:00:00Z', { stage: 'sf', group_label: null }),
+    match('k-final', TEAMS.brazil, TEAMS.spain, '2026-07-19T19:00:00Z', { stage: 'final', group_label: null }),
   ];
   const betsPerMatch = new Map<string, Set<string>>([
     ['f-1', new Set(['outcome', 'exact_score', 'first_scorer'])],
