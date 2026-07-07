@@ -2,13 +2,15 @@
 
 import { Fragment } from 'react';
 import Link from 'next/link';
-import { CalendarDays, Clock, Lock, CircleDot, Ticket, Trophy } from 'lucide-react';
+import { CalendarDays, Clock, Lock, CircleDot, CircleDashed, Ticket, Trophy } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Flag } from '@/components/ui/flag';
 import { GoldenBracketPromo } from '@/app/today/GoldenBracketPromo';
 import { currentSlateKey, slateKeyOf } from '@/lib/slate';
 import { STAGE_LABEL, isFeatureStage } from '@/lib/stage';
+import { buildScheduleGroups } from '@/lib/schedule';
+import { type KnockoutSlot } from '@/lib/knockout-schedule';
 import { ScreenFrame } from './ScreenFrame';
 import { fixturesData, MOCK_GB_LOCK_AT, type MatchRow } from '../mock';
 
@@ -46,6 +48,15 @@ function formatKickoff(utcString: string) {
   }).format(new Date(utcString));
 }
 
+function formatKickoffDate(utcString: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).format(new Date(utcString));
+}
+
 export function FixturesScreen({ empty = false }: { empty?: boolean }) {
   const { matches: allMatches, betsPerMatch, now, rollover } = fixturesData();
   const matches = empty ? [] : allMatches;
@@ -53,17 +64,15 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
   const slateKey = currentSlateKey(now, rollover);
   const isToday = (m: MatchRow) => slateKeyOf(m.kickoff_at, rollover) === slateKey;
 
-  const groups: { key: string; matches: MatchRow[] }[] = [];
-  for (const m of matches) {
-    const key = naDayKey(m.kickoff_at);
-    const last = groups[groups.length - 1];
-    if (last && last.key === key) last.matches.push(m);
-    else groups.push({ key, matches: [m] });
-  }
+  // Same shared helper as the real page: drawn matches + placeholders for undrawn
+  // knockout slots, grouped into NA match days.
+  const groups = buildScheduleGroups(matches, naDayKey);
 
-  // The Golden Bracket promo leads into the knockouts on the real page — mirror that
-  // here by dropping the compact promo just above the first quarter-final group.
-  const qfGroupIdx = groups.findIndex(g => g.matches.some(m => m.stage === 'qf'));
+  // The Golden Bracket banner leads into the knockouts on the real page — mirror that
+  // here. The mock's QF field is incomplete, so this shows the pre-window teaser.
+  const qfGroupIdx = groups.findIndex(g =>
+    g.items.some(it => (it.kind === 'match' ? it.m.stage : it.slot.stage) === 'qf'),
+  );
 
   function MatchInner({ m, today }: { m: MatchRow; today: boolean }) {
     const betTypes = betsPerMatch.get(m.id);
@@ -150,7 +159,7 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
     }
     if (feature) {
       return (
-        <div className="flex flex-col gap-3 rounded-2xl border border-points/30 bg-gradient-to-br from-points/[0.08] to-transparent px-4 py-3.5">
+        <div className="flex flex-col gap-3 rounded-2xl border border-points/30 bg-gradient-to-br from-points/10 to-transparent px-4 py-3.5">
           <MatchInner m={m} today={false} />
         </div>
       );
@@ -158,6 +167,35 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
     return (
       <div className="flex flex-col gap-3 px-1 py-3">
         <MatchInner m={m} today={false} />
+      </div>
+    );
+  }
+
+  function PlaceholderItem({ slot }: { slot: KnockoutSlot }) {
+    return (
+      <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-points/40 px-4 py-3.5">
+        <div className="flex items-center justify-between">
+          <Badge variant="points" size="sm">
+            {slot.stage === 'final' && <Trophy aria-hidden />}
+            {STAGE_LABEL[slot.stage]}
+          </Badge>
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">To be decided</span>
+        </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className="flex min-w-0 items-center justify-end gap-2 font-display italic text-muted">
+            <span className="truncate">{slot.home_label}</span>
+            <CircleDashed className="size-4 shrink-0 text-subtle" aria-hidden />
+          </span>
+          <span className="text-xs font-medium uppercase text-subtle">vs</span>
+          <span className="flex min-w-0 items-center gap-2 font-display italic text-muted">
+            <CircleDashed className="size-4 shrink-0 text-subtle" aria-hidden />
+            <span className="truncate">{slot.away_label}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm text-muted">
+          <Clock className="size-4" aria-hidden />
+          {formatKickoffDate(slot.kickoff_at)} · time TBC
+        </div>
       </div>
     );
   }
@@ -184,7 +222,7 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
         ) : (
           groups.map((group, i) => (
             <Fragment key={group.key}>
-              {i === qfGroupIdx && <GoldenBracketPromo state="open" lockAt={MOCK_GB_LOCK_AT} compact />}
+              {i === qfGroupIdx && <GoldenBracketPromo state="teaser" lockAt={MOCK_GB_LOCK_AT} compact />}
               <section className="space-y-3">
                 <div className="flex items-baseline justify-between border-b border-border pb-1.5">
                   <h2 className="font-display text-lg font-bold tracking-tight text-foreground">
@@ -195,9 +233,13 @@ export function FixturesScreen({ empty = false }: { empty?: boolean }) {
                   </span>
                 </div>
                 <div className="space-y-2.5">
-                  {group.matches.map(m => (
-                    <MatchItem key={m.id} m={m} />
-                  ))}
+                  {group.items.map(it =>
+                    it.kind === 'match' ? (
+                      <MatchItem key={it.m.id} m={it.m} />
+                    ) : (
+                      <PlaceholderItem key={it.slot.id} slot={it.slot} />
+                    ),
+                  )}
                 </div>
               </section>
             </Fragment>

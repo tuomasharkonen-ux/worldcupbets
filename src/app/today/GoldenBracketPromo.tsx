@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Countdown } from '@/components/Countdown';
 
-export type GoldenBracketPromoState = 'open' | 'submitted' | 'locked';
+export type GoldenBracketPromoState = 'teaser' | 'open' | 'submitted' | 'locked';
 
 // The Golden Bracket call-to-action on the Today screen (migration 016). Purely
 // presentational — the page decides visibility and state — so the admin gallery can
@@ -22,6 +22,29 @@ export function GoldenBracketPromo({
   /** Force the small one-line row even for the open state (used on the schedule). */
   compact?: boolean;
 }) {
+  // Pre-window teaser: the bracket isn't open yet (the QF field isn't fully known), so
+  // there's nothing to submit — a quiet "coming soon" row with no CTA.
+  if (state === 'teaser') {
+    return (
+      <Card
+        variant="glass"
+        padding="md"
+        className="flex items-center gap-3 border-points/30 bg-gradient-to-br from-points/10 to-transparent"
+      >
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-surface-2 text-points">
+          <Trophy className="size-4.5" aria-hidden />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-display text-sm font-semibold text-foreground">The Golden Bracket is coming</p>
+          <p className="text-xs text-muted">
+            Opens once all eight quarter-finalists are set — call the top four and the tournament top scorer for Points.
+          </p>
+        </div>
+        <span className="shrink-0 text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">Soon</span>
+      </Card>
+    );
+  }
+
   if (state === 'open' && !compact) {
     return (
       <Card

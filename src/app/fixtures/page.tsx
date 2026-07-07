@@ -2,7 +2,7 @@ import { Fragment } from 'react';
 import { redirect } from 'next/navigation';
 import { unstable_cache } from 'next/cache';
 import Link from 'next/link';
-import { CalendarDays, Clock, Lock, CircleDot, Ticket, Trophy } from 'lucide-react';
+import { CalendarDays, Clock, Lock, CircleDot, CircleDashed, Ticket, Trophy } from 'lucide-react';
 import { getSession, requireOnboarded } from '@/lib/session';
 import { db } from '@/lib/supabase';
 import { Nav } from '@/components/Nav';
@@ -13,6 +13,8 @@ import { GoldenBracketPromo, type GoldenBracketPromoState } from '@/app/today/Go
 import { currentSlateKey, slateKeyOf } from '@/lib/slate';
 import { naDayKey, naDayLabel } from '@/lib/matchday';
 import { STAGE_LABEL, isFeatureStage } from '@/lib/stage';
+import { type KnockoutSlot } from '@/lib/knockout-schedule';
+import { buildScheduleGroups, type ScheduleItem } from '@/lib/schedule';
 import type { League, Match, Team } from '@/types/db';
 import { ScrollToAnchor } from './ScrollToAnchor';
 
@@ -28,6 +30,16 @@ function formatKickoff(utc: string) {
     weekday: 'short',
     hour: '2-digit',
     minute: '2-digit',
+  }).format(new Date(utc));
+}
+
+// Date only (no time) — for placeholder knockout slots whose kickoff isn't confirmed.
+function formatKickoffDate(utc: string) {
+  return new Intl.DateTimeFormat('en-GB', {
+    timeZone: TIMEZONE,
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
   }).format(new Date(utc));
 }
 
@@ -89,44 +101,48 @@ export default async function FixturesPage() {
     betsPerMatch.get(b.match_id)!.add(b.bet_type);
   }
 
-  // Group into NA match days (matches are already kickoff-ascending, so consecutive
-  // grouping preserves order). Each distinct match day gets a sequential number.
-  const groups: { key: string; matches: MatchRow[] }[] = [];
-  for (const m of matches) {
-    const key = naDayKey(m.kickoff_at);
-    const last = groups[groups.length - 1];
-    if (last && last.key === key) last.matches.push(m);
-    else groups.push({ key, matches: [m] });
-  }
+  // Merge drawn matches with placeholders for undrawn knockout slots, grouped into NA
+  // match days (shared, unit-tested helper — see src/lib/schedule.ts).
+  const groups = buildScheduleGroups(matches, naDayKey);
 
-  // Golden Bracket promo — derived from the fixtures we already loaded (no extra
-  // matches read): the window opens once all 8 quarter-finalists are known and locks
-  // at the first QF kickoff. Only "have I submitted?" needs a fresh (head-only) read.
+  // Golden Bracket banner — derived from the loaded fixtures (no extra matches read):
+  // the window opens once all 8 quarter-finalists are known and locks at the first QF
+  // kickoff. Before that, once QF pairings start landing, show a "coming soon" teaser.
   const qfMatches = matches.filter(m => m.stage === 'qf');
   const qfTeams = new Set(qfMatches.flatMap(m => [m.home_team_id, m.away_team_id]));
-  let gbPromo: { state: GoldenBracketPromoState; lockAt: string } | null = null;
-  if (league?.config.golden_bracket && qfTeams.size === 8) {
-    const lockAt = qfMatches[0].kickoff_at;
-    const { count } = await db
-      .from('golden_brackets')
-      .select('manager_id', { count: 'exact', head: true })
-      .eq('manager_id', session.managerId!);
-    const submitted = (count ?? 0) > 0;
-    if (nowDate < new Date(lockAt)) gbPromo = { state: submitted ? 'submitted' : 'open', lockAt };
-    else if (submitted) gbPromo = { state: 'locked', lockAt };
+  let gbBanner:
+    | { kind: 'promo'; state: GoldenBracketPromoState; lockAt: string }
+    | { kind: 'teaser'; lockAt: string }
+    | null = null;
+  if (league?.config.golden_bracket) {
+    if (qfTeams.size === 8) {
+      const lockAt = qfMatches[0].kickoff_at;
+      const { count } = await db
+        .from('golden_brackets')
+        .select('manager_id', { count: 'exact', head: true })
+        .eq('manager_id', session.managerId!);
+      const submitted = (count ?? 0) > 0;
+      if (nowDate < new Date(lockAt)) gbBanner = { kind: 'promo', state: submitted ? 'submitted' : 'open', lockAt };
+      else if (submitted) gbBanner = { kind: 'promo', state: 'locked', lockAt };
+    } else if (qfMatches.length > 0) {
+      gbBanner = { kind: 'teaser', lockAt: qfMatches[0].kickoff_at };
+    }
   }
 
-  // Where to land on open: the first match day with an unfinished match (the current
-  // / next day) so you don't scroll past everything already played. The promo, when
-  // live, sits just above the QF group and takes the anchor when that's the next day.
+  // Where to land on open: the first match day still to come (an unfinished match or a
+  // placeholder), so you don't scroll past everything already played. The banner, when
+  // shown, sits just above the QF day and takes the anchor when that's the next day.
   const ANCHOR = 'sched-next';
+  const isPending = (it: ScheduleItem<MatchRow>) => it.kind === 'placeholder' || it.m.status !== 'finished';
   const nextIdx = (() => {
-    const i = groups.findIndex(g => g.matches.some(m => m.status !== 'finished'));
+    const i = groups.findIndex(g => g.items.some(isPending));
     return i === -1 ? Math.max(groups.length - 1, 0) : i;
   })();
-  const qfGroupIdx = gbPromo ? groups.findIndex(g => g.matches.some(m => m.stage === 'qf')) : -1;
-  const promoIdx = gbPromo ? (qfGroupIdx === -1 ? nextIdx : qfGroupIdx) : -1;
-  const anchorOnPromo = promoIdx === nextIdx;
+  const qfGroupIdx = gbBanner
+    ? groups.findIndex(g => g.items.some(it => (it.kind === 'match' ? it.m.stage : it.slot.stage) === 'qf'))
+    : -1;
+  const bannerIdx = gbBanner ? (qfGroupIdx === -1 ? nextIdx : qfGroupIdx) : -1;
+  const anchorOnBanner = bannerIdx === nextIdx;
 
   // Inner card/row content — shared between the clickable (today) and plain layouts.
   function MatchInner({ m, today }: { m: MatchRow; today: boolean }) {
@@ -221,7 +237,7 @@ export default async function FixturesPage() {
     // plain, container-less rows the rest of the (read-only) schedule uses.
     if (feature) {
       return (
-        <div className="flex flex-col gap-3 rounded-2xl border border-points/30 bg-gradient-to-br from-points/[0.08] to-transparent px-4 py-3.5">
+        <div className="flex flex-col gap-3 rounded-2xl border border-points/30 bg-gradient-to-br from-points/10 to-transparent px-4 py-3.5">
           <MatchInner m={m} today={false} />
         </div>
       );
@@ -229,6 +245,37 @@ export default async function FixturesPage() {
     return (
       <div className="flex flex-col gap-3 px-1 py-3">
         <MatchInner m={m} today={false} />
+      </div>
+    );
+  }
+
+  // An undrawn knockout slot: same shape as a match card but dashed + muted, with the
+  // structural feeders instead of teams and the date only (kickoff not yet confirmed).
+  function PlaceholderItem({ slot }: { slot: KnockoutSlot }) {
+    return (
+      <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-points/40 px-4 py-3.5">
+        <div className="flex items-center justify-between">
+          <Badge variant="points" size="sm">
+            {slot.stage === 'final' && <Trophy aria-hidden />}
+            {STAGE_LABEL[slot.stage]}
+          </Badge>
+          <span className="text-[0.7rem] font-semibold uppercase tracking-wider text-subtle">To be decided</span>
+        </div>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
+          <span className="flex min-w-0 items-center justify-end gap-2 font-display italic text-muted">
+            <span className="truncate">{slot.home_label}</span>
+            <CircleDashed className="size-4 shrink-0 text-subtle" aria-hidden />
+          </span>
+          <span className="text-xs font-medium uppercase text-subtle">vs</span>
+          <span className="flex min-w-0 items-center gap-2 font-display italic text-muted">
+            <CircleDashed className="size-4 shrink-0 text-subtle" aria-hidden />
+            <span className="truncate">{slot.away_label}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-1.5 text-sm text-muted">
+          <Clock className="size-4" aria-hidden />
+          {formatKickoffDate(slot.kickoff_at)} · time TBC
+        </div>
       </div>
     );
   }
@@ -257,13 +304,17 @@ export default async function FixturesPage() {
           </Card>
         ) : (
           groups.map((group, i) => {
-            const showPromoHere = gbPromo != null && promoIdx === i;
-            const groupIsAnchor = i === nextIdx && !(showPromoHere && anchorOnPromo);
+            const showBannerHere = gbBanner != null && bannerIdx === i;
+            const groupIsAnchor = i === nextIdx && !(showBannerHere && anchorOnBanner);
             return (
               <Fragment key={group.key}>
-                {showPromoHere && (
-                  <div id={anchorOnPromo ? ANCHOR : undefined} className={anchorOnPromo ? 'scroll-mt-20' : undefined}>
-                    <GoldenBracketPromo state={gbPromo!.state} lockAt={gbPromo!.lockAt} compact />
+                {showBannerHere && gbBanner && (
+                  <div id={anchorOnBanner ? ANCHOR : undefined} className={anchorOnBanner ? 'scroll-mt-20' : undefined}>
+                    <GoldenBracketPromo
+                      state={gbBanner.kind === 'teaser' ? 'teaser' : gbBanner.state}
+                      lockAt={gbBanner.lockAt}
+                      compact
+                    />
                   </div>
                 )}
                 <section
@@ -279,9 +330,13 @@ export default async function FixturesPage() {
                     </span>
                   </div>
                   <div className="space-y-2.5">
-                    {group.matches.map(m => (
-                      <MatchItem key={m.id} m={m} />
-                    ))}
+                    {group.items.map(it =>
+                      it.kind === 'match' ? (
+                        <MatchItem key={it.m.id} m={it.m} />
+                      ) : (
+                        <PlaceholderItem key={it.slot.id} slot={it.slot} />
+                      ),
+                    )}
                   </div>
                 </section>
               </Fragment>
