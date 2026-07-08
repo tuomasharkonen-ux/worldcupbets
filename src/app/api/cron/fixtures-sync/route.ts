@@ -204,9 +204,18 @@ function mapStage(fdStage: string): string {
 // The 2026 WC schedule's stage windows are fixed and published months ahead — only the teams
 // in each match are unknown beforehand — so for any match with no `group` (i.e. a knockout
 // fixture), derive the stage from its kickoff date instead of trusting the API's stage string.
+// Boundaries sit in the GAP between two rounds, NOT at midnight UTC — a knockout match's
+// UTC kickoff can spill past midnight for a North American evening game, so a midnight cut
+// misfiles the round's last match into the next round. This bit us for real: the last
+// round-of-32 fixture (Colombia–Ghana) kicks off 2026-07-04T01:30Z (evening of Jul 3 local)
+// and a `2026-07-04T00:00:00Z` r16 boundary swept it into r16 — inflating r16 to 9 matches,
+// leaving r32 at 15, and (because winning a phantom r16 reads as "reached the QF") mis-firing
+// the favorite-team ladder. The real gap between the last R32 (Jul 4 01:30Z) and the first
+// R16 (Jul 4 17:00Z) is mid-morning UTC, so the r16 boundary is noon UTC Jul 4. The other
+// rounds have day-wide gaps, so their midnight boundaries are already safe.
 const KNOCKOUT_STAGE_BOUNDARIES: [string, string][] = [
   ['2026-06-28T00:00:00Z', 'r32'],
-  ['2026-07-04T00:00:00Z', 'r16'],
+  ['2026-07-04T12:00:00Z', 'r16'],
   ['2026-07-09T00:00:00Z', 'qf'],
   ['2026-07-14T00:00:00Z', 'sf'],
   ['2026-07-18T00:00:00Z', 'third'],
