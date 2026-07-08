@@ -104,8 +104,15 @@ export function GoldenBracketFlow({
   const scorer = useMemo(() => scorers.find(s => s.id === scorerId) ?? null, [scorers, scorerId]);
   const filteredScorers = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? scorers.filter(s => s.name.toLowerCase().includes(q)) : scorers;
-  }, [scorers, query]);
+    if (q) return scorers.filter(s => s.name.toLowerCase().includes(q));
+    // No search: just the current top 6 by goals. The pick is kept visible if it sits outside.
+    const top = scorers.slice(0, 6);
+    if (scorerId && !top.some(s => s.id === scorerId)) {
+      const picked = scorers.find(s => s.id === scorerId);
+      if (picked) return [...top, picked];
+    }
+    return top;
+  }, [scorers, query, scorerId]);
   const bracketComplete = SLOTS.every(({ slot }) => picks[slot] != null);
   const minGoals = Math.max(scorer?.goals ?? 0, 1);
 
@@ -389,14 +396,14 @@ export function GoldenBracketFlow({
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-subtle" aria-hidden />
             <Input
               type="search"
-              placeholder="Search players…"
+              placeholder="Search any player…"
               value={query}
               onChange={e => setQuery(e.target.value)}
               className="pl-9"
-              aria-label="Search players"
+              aria-label="Search any player"
             />
           </div>
-          <div className="max-h-[19rem] space-y-1.5 overflow-y-auto pr-1">
+          <div className="space-y-1.5">
             {filteredScorers.map(p => {
               const selected = p.id === scorerId;
               const t = teamById.get(p.teamId);
