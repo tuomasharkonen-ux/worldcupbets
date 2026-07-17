@@ -1,6 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
+import { redirect } from 'next/navigation';
 import { db } from '@/lib/supabase';
 import { requireManager } from '@/lib/session';
 import { REACTION_EMOJIS, MAX_COMMENT_CHARS, isAllowedGifUrl } from '@/lib/social';
@@ -30,6 +31,14 @@ export async function markRecapSeen(slateKey: string): Promise<void> {
       .eq('id', managerId);
   }
   revalidatePath('/today');
+}
+
+// Dismiss the season-finale recap ("Final leaderboard" button). Same monotonic
+// mark-seen as markRecapSeen, then sends the manager to the leaderboard for the final
+// standings — /today has nothing left to show once the tournament's over.
+export async function markFinaleSeen(slateKey: string): Promise<void> {
+  await markRecapSeen(slateKey);
+  redirect('/leaderboard');
 }
 
 export async function postComment(input: {

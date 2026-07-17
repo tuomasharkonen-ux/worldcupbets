@@ -15,7 +15,7 @@ import { buildSlateShareText } from '@/lib/share';
 import type { Bet, ExactScoreSelection, OutcomeSelection } from '@/types/db';
 import { BONUS_LABEL, bonusDetail, isBonusBet } from '@/lib/bonus-bets';
 import { ScreenFrame } from './ScreenFrame';
-import { MOCK_RECAP, MOCK_RECAP_ROUGH, socialData, todayScenario, type MatchRow, type TodayVariant } from '../mock';
+import { MOCK_RECAP, MOCK_RECAP_ROUGH, MOCK_RECAP_FINALE, socialData, todayScenario, type MatchRow, type TodayVariant } from '../mock';
 
 const TIMEZONE = 'Europe/Helsinki';
 
@@ -78,10 +78,12 @@ export function TodayScreen({ variant }: { variant: TodayVariant }) {
   }
 
   // ─── recap ─────────────────────────────────────────────────────────────────
-  if (variant === 'recap' || variant === 'recap-rough') {
+  if (variant === 'recap' || variant === 'recap-rough' || variant === 'recap-finale') {
+    const data =
+      variant === 'recap' ? MOCK_RECAP : variant === 'recap-rough' ? MOCK_RECAP_ROUGH : MOCK_RECAP_FINALE;
     return (
       <Shell>
-        <Recap data={variant === 'recap' ? MOCK_RECAP : MOCK_RECAP_ROUGH} />
+        <Recap data={data} />
       </Shell>
     );
   }

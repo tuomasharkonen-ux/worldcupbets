@@ -116,7 +116,7 @@ function match(
 // + `betsByMatch`. We hand the preview the same inputs plus a fixed `now`, so the
 // rendering is faithful without any time-of-day flakiness.
 
-export type TodayVariant = 'betting' | 'allset' | 'settling' | 'recap' | 'recap-rough' | 'upcoming' | 'noschedule';
+export type TodayVariant = 'betting' | 'allset' | 'settling' | 'recap' | 'recap-rough' | 'recap-finale' | 'upcoming' | 'noschedule';
 
 export interface TodayScenario {
   state: 'betting' | 'allset' | 'settling';
@@ -147,7 +147,7 @@ function slateMatches(): MatchRow[] {
 // renders the real <Recap> on a mock; noschedule is the empty state), so they never
 // reach here.
 export function todayScenario(
-  variant: Exclude<TodayVariant, 'noschedule' | 'recap' | 'recap-rough'>,
+  variant: Exclude<TodayVariant, 'noschedule' | 'recap' | 'recap-rough' | 'recap-finale'>,
 ): TodayScenario {
   // `upcoming` — current slate is a rest day, so we've jumped to the next slate that
   // has fixtures. Fresh slip (every match needs a pick), kickoffs a couple of days out.
@@ -481,6 +481,68 @@ export const MOCK_RECAP_ROUGH: RecapData = {
     { id: 'd', name: 'Aino', before: 120, after: 122, rankBefore: 5, rankAfter: 5, isYou: false },
   ],
   balance: 30,
+};
+
+// The season finale — the recap on the slate carrying the final. `finale: true` swaps
+// the plain standings for the grand board that reveals *every* manager's final-day +
+// Golden Bracket haul, crowns the league winner, and re-themes the title/send-off.
+// Math is internally consistent: for each manager after − before = gained, and gained =
+// (final-day Points) + gainedBracket. The drama: You sat 2nd, but a champion + top-scorer
+// bracket (+180) vaults you past Semi to win the league.
+export const MOCK_RECAP_FINALE: RecapData = {
+  matchDay: 20,
+  finale: true,
+  champion: { name: 'Spain', code: 'ESP' },
+  // Your own Golden Bracket, itemised — sums to the +180 bracket haul on your board row
+  // below. A champion HIT, a top-4 consolation, and a top-scorer + goal-tally sweep;
+  // two placement calls missed. Revealed slip-style so the points visibly accumulate.
+  gbBreakdown: [
+    { label: 'Champion', detail: 'Spain', result: 'won', points: 100 },
+    { label: 'Runner-up', detail: 'Brazil', result: 'lost', points: 0 },
+    { label: 'Third place', detail: 'France · finished top 4', result: 'consolation', points: 15 },
+    { label: 'Fourth place', detail: 'Portugal', result: 'lost', points: 0 },
+    { label: 'Top scorer', detail: 'H. Kane', result: 'won', points: 50 },
+    { label: 'Goal-tally bonus', detail: 'called 8 goals', result: 'won', points: 15 },
+  ],
+  matches: [
+    {
+      id: 'f-1',
+      home: 'Spain',
+      away: 'Argentina',
+      homeCode: 'ESP',
+      awayCode: 'ARG',
+      homeScore: 2,
+      awayScore: 1,
+      staked: 50,
+      stakeMult: 2.0,
+      picks: [
+        { label: 'Outcome', detail: 'Spain', result: 'won', points: 15 },
+        { label: 'First scorer', detail: 'Nico Williams', result: 'won', points: 10 },
+      ],
+    },
+  ],
+  // Headline = your final-day Points only (bets 25 + favorite-team champion milestone
+  // 15). Your Golden Bracket haul is layered on top on the board below, not here.
+  pointsGained: 40,
+  favoriteItems: [
+    { kind: 'team', label: 'Spain', detail: 'Champions! 🏆', points: 15 },
+  ],
+  coinItems: [
+    { label: 'Participation', amount: 15 },
+    { label: 'Bet winnings', amount: 60 },
+    { label: 'Coins staked', amount: -100 },
+  ],
+  coinsGained: -25,
+  // rankAfter order. gainedBracket is the Golden Bracket subset of gained.
+  standings: [
+    { id: 'me', name: 'You', before: 620, after: 840, rankBefore: 2, rankAfter: 1, isYou: true, gained: 220, gainedBracket: 180 },
+    { id: 'a', name: 'Semi', before: 700, after: 735, rankBefore: 1, rankAfter: 2, isYou: false, gained: 35, gainedBracket: 20 },
+    { id: 'b', name: 'Janne', before: 560, after: 660, rankBefore: 3, rankAfter: 3, isYou: false, gained: 100, gainedBracket: 90 },
+    { id: 'c', name: 'Pekka', before: 540, after: 565, rankBefore: 4, rankAfter: 4, isYou: false, gained: 25, gainedBracket: 0 },
+    { id: 'd', name: 'Aino', before: 480, after: 540, rankBefore: 5, rankAfter: 5, isYou: false, gained: 60, gainedBracket: 60 },
+    { id: 'e', name: 'Tomi', before: 400, after: 400, rankBefore: 6, rankAfter: 6, isYou: false, gained: 0, gainedBracket: 0 },
+  ],
+  balance: 240,
 };
 
 // ─── Bet slip (match detail) ─────────────────────────────────────────────────

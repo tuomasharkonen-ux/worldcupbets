@@ -30,7 +30,7 @@ Phases 0–2 are **complete**. The core loop — join → bet → lock → settl
 5. **Banter** — once your own slip is in, the all-set screen reveals a read-only **everyone's bets** digest for the day (scores, outcomes, stakes, bonus bets) and, below it, a slate-scoped **comments feed**: text, GIFs (Giphy search), and a fixed palette of emoji reactions on comments. Another manager's bets only become visible for a match once you've bet on it yourself (or it has kicked off), so nobody can copy picks. Both stick around through the settling state and reset with the next slate.
 6. **Settle** — after full time, the `settle` job finds finished matches, runs the pure settlement engine, writes Points movements to the append-only `ledger`, and recomputes cached balances. Idempotent: re-running never double-credits.
 7. **Leaderboard** — managers ranked by Points.
-8. **Share** — once your slate is in, the all-set screen offers a **Share my bets** button that copies a compact, emoji-flag digest of your picks to the clipboard (Wordle-style, ready to paste into WhatsApp); the morning recap offers **Share my results** — a spoiler-free 🟩/⬛/⬜ grid with your points and leaderboard move; and once your Golden Bracket is in, its summary offers **Share my bracket** — the four placements in order plus your top-scorer call. All end in a link back to the game.
+8. **Share** — once your slate is in, the all-set screen offers a **Share my bets** button that copies a compact, emoji-flag digest of your picks to the clipboard (Wordle-style, ready to paste into WhatsApp); the morning recap offers **Share my results** — a spoiler-free 🟩/⬛/⬜ grid with your points and leaderboard move (on the **finale** it splits the haul into match, Golden Bracket, and total); and once your Golden Bracket is in, its summary offers **Share my bracket** — the four placements in order plus your top-scorer call. All end in a link back to the game.
 
 ## Project layout
 
@@ -46,7 +46,10 @@ src/
     golden-bracket/       one-time Golden Bracket special bet wizard (page + flow + action)
     leaderboard/          Points + Coins ranking
     today/                daily slate: betting → all-set → settling → recap (+ ShareBetsButton;
-                          Social = everyone's bets + banter feed, with actions.ts + social-data.ts)
+                          Social = everyone's bets + banter feed, with actions.ts + social-data.ts).
+                          The final's recap is a special "finale" variant: the leaderboard scene
+                          reveals every manager's final-day + Golden Bracket Points and crowns the
+                          league winner (see docs/GAME_DESIGN.md §11)
     admin/                hidden preview gallery — every view on mock data (no DB/session)
     api/cron/             fixtures-sync, squads-sync, af-map, settle, settle-backfill, af-probe  (CRON_SECRET-guarded)
     api/dev/              seed-match, finish-match  (test-only, CRON_SECRET-guarded)
@@ -73,7 +76,7 @@ npm run lint                 # eslint + tsc --noEmit
 
 ### Preview gallery (`/admin`)
 
-A hidden, unlinked harness at [`/admin`](http://localhost:3000/admin) for eyeballing and testing every view on fabricated data — no session, no DB, instant. A side-nav switches between: the Today slate in all states (betting, all-set and settling — both including the social layer: everyone's bets, reactions, banter feed —, morning recap, next-up on a rest day, no-fixtures-yet), the match bet slip (fully interactive — outcome/score/bonus bet/stakes; Save is a no-op) and a finished/settled match, the full + empty schedule, the leaderboard, the join screen (+ error), and a live **design-system** page (tokens, buttons, badges, cards, inputs, flags, stake chips, dialog, motion). Previews reuse the real components; mock data lives in `src/app/admin/mock.ts`.
+A hidden, unlinked harness at [`/admin`](http://localhost:3000/admin) for eyeballing and testing every view on fabricated data — no session, no DB, instant. A side-nav switches between: the Today slate in all states (betting, all-set and settling — both including the social layer: everyone's bets, reactions, banter feed —, morning recap, finale recap, next-up on a rest day, no-fixtures-yet), the match bet slip (fully interactive — outcome/score/bonus bet/stakes; Save is a no-op) and a finished/settled match, the full + empty schedule, the leaderboard, the join screen (+ error), and a live **design-system** page (tokens, buttons, badges, cards, inputs, flags, stake chips, dialog, motion). Previews reuse the real components; mock data lives in `src/app/admin/mock.ts`.
 
 ### Environment variables
 

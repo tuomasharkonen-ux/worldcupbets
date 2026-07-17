@@ -34,6 +34,7 @@ const GROUPS: Group[] = [
       { key: 'today-settling', label: 'Settling', Icon: Loader2, render: () => <TodayScreen variant="settling" /> },
       { key: 'today-recap', label: 'Morning recap (big win)', Icon: Sparkles, render: () => <TodayScreen variant="recap" /> },
       { key: 'today-recap-rough', label: 'Morning recap (rough night)', Icon: Sparkles, render: () => <TodayScreen variant="recap-rough" /> },
+      { key: 'today-recap-finale', label: 'Finale recap (leaderboard)', Icon: Trophy, render: () => <TodayScreen variant="recap-finale" /> },
       { key: 'today-upcoming', label: 'Next up (rest day)', Icon: CalendarClock, render: () => <TodayScreen variant="upcoming" /> },
       { key: 'today-noschedule', label: 'No fixtures yet', Icon: Coffee, render: () => <TodayScreen variant="noschedule" /> },
     ],

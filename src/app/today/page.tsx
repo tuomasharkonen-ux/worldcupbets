@@ -12,11 +12,11 @@ import { Flag } from '@/components/ui/flag';
 import { currentSlateKey, slateKeyOf, slateLabel } from '@/lib/slate';
 import { matchDayNumber } from '@/lib/matchday';
 import { buildSlateShareText } from '@/lib/share';
-import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding, type RecapFavoriteItem } from './Recap';
+import { Recap, type RecapData, type RecapMatch, type RecapPick, type RecapCoinItem, type RecapStanding, type RecapFavoriteItem, type RecapGbItem } from './Recap';
 import { ShareBetsButton } from './ShareBetsButton';
 import { Social } from './Social';
 import { buildSocialData } from './social-data';
-import { markRecapSeen } from './actions';
+import { markRecapSeen, markFinaleSeen } from './actions';
 import { GoldenBracketPromo, type GoldenBracketPromoState } from './GoldenBracketPromo';
 import { getGoldenBracketWindow } from '@/lib/golden-bracket';
 import { nudgeSettlement } from '@/settlement/run';
@@ -150,7 +150,10 @@ export default async function TodayPage() {
       const recap = await buildRecap(managerId, recapSlateKey, recapMembers, (recapBetRows ?? []) as Bet[]);
       return (
         <Shell>
-          <Recap data={recap} doneAction={markRecapSeen.bind(null, recapSlateKey)} />
+          <Recap
+            data={recap}
+            doneAction={(recap.finale ? markFinaleSeen : markRecapSeen).bind(null, recapSlateKey)}
+          />
         </Shell>
       );
     }
@@ -800,6 +803,41 @@ async function buildRecap(
   }
   const pointsGained = betPoints + myFavTotal;
 
+  // ── season finale: the slate carrying the final. Golden Bracket Points settle as one
+  // season-scoped lump at tournament end (reason 'gb_*', ref_type 'season'), so on a
+  // normal recap they sit in *both* before and after and cancel to an invisible zero
+  // delta. On the finale we fold each manager's bracket haul into the slate delta — so
+  // every player's final-day + bracket Points show as a real climb on the board, not
+  // just your own. (Only 'gb_%' uses that reason prefix, so no season key filter needed.)
+  const finale = members.some(m => m.stage === 'final');
+  const gbByManager = new Map<string, number>();
+  let gbBreakdown: RecapGbItem[] | undefined;
+  if (finale) {
+    const { data: gbRows } = await db
+      .from('ledger')
+      .select('manager_id, reason, amount')
+      .eq('currency', 'glory')
+      .eq('ref_type', 'season')
+      .like('reason', 'gb_%');
+    for (const r of gbRows ?? []) gbByManager.set(r.manager_id, (gbByManager.get(r.manager_id) ?? 0) + r.amount);
+    for (const [mid, amt] of gbByManager) gainedByManager.set(mid, (gainedByManager.get(mid) ?? 0) + amt);
+
+    // This manager's own bracket, itemised like a match slip. Points come straight from
+    // the ledger (the authoritative record — respects any settle-backfill), while the
+    // picks + hit/consolation/miss status come from their golden_brackets row. Only
+    // built when they actually placed a bracket.
+    gbBreakdown = await buildGbBreakdown(managerId, gbRows ?? []);
+  }
+
+  // The World Cup champion (the final's winner) — the finale title hero.
+  let champion: { name: string; code: string | null } | undefined;
+  const finalMatch = members.find(m => m.stage === 'final');
+  if (finale && finalMatch?.winner_team_id) {
+    const winTeam =
+      finalMatch.winner_team_id === finalMatch.home_team_id ? finalMatch.home_team : finalMatch.away_team;
+    champion = { name: winTeam.name, code: winTeam.country_code };
+  }
+
   const withScores = allManagers.map(m => ({
     id: m.id,
     name: m.display_name,
@@ -816,6 +854,8 @@ async function buildRecap(
     ...m,
     rankBefore: rankBefore.get(m.id)!,
     rankAfter: rankAfter.get(m.id)!,
+    gained: gainedByManager.get(m.id) ?? 0,
+    gainedBracket: gbByManager.get(m.id) ?? 0,
   }));
 
   const balance = allManagers.find(m => m.id === managerId)?.coins ?? 0;
@@ -840,7 +880,79 @@ async function buildRecap(
     coinsGained,
     standings,
     balance,
+    finale,
+    champion,
+    gbBreakdown,
   };
+}
+
+// The viewer's own Golden Bracket, itemised for the finale reveal. One line per
+// placement slot (champion → fourth) plus the top-scorer call and its goal-tally bonus,
+// mirroring a match slip: a HIT (exact slot), a TOP-4 consolation (right team, wrong
+// slot), or a MISS. Points are read from that manager's own gb_* ledger rows — never
+// recomputed — so the reveal can't drift from what was actually paid. Returns undefined
+// when the manager never placed a bracket.
+async function buildGbBreakdown(
+  managerId: string,
+  gbLedger: { manager_id: string; reason: string; amount: number }[],
+): Promise<RecapGbItem[] | undefined> {
+  const { data: bracket } = await db
+    .from('golden_brackets')
+    .select('champion_team_id, runner_up_team_id, third_team_id, fourth_team_id, top_scorer_id, scorer_goals')
+    .eq('manager_id', managerId)
+    .maybeSingle();
+  if (!bracket) return undefined;
+
+  const amount = (reason: string) =>
+    gbLedger.find(r => r.manager_id === managerId && r.reason === reason)?.amount ?? 0;
+
+  const teamIds = [
+    bracket.champion_team_id,
+    bracket.runner_up_team_id,
+    bracket.third_team_id,
+    bracket.fourth_team_id,
+  ].filter((id): id is string => id != null);
+  const { data: teamRows } = teamIds.length
+    ? await db.from('teams').select('id, name').in('id', teamIds)
+    : { data: [] };
+  const teamName = new Map((teamRows ?? []).map(t => [t.id as string, t.name as string]));
+  const { data: scorerRow } = await db
+    .from('footballers')
+    .select('name')
+    .eq('id', bracket.top_scorer_id)
+    .maybeSingle();
+  const scorerName = (scorerRow?.name as string | undefined) ?? 'Your pick';
+
+  const slots: { slot: string; label: string; teamId: string | null }[] = [
+    { slot: 'champion', label: 'Champion', teamId: bracket.champion_team_id },
+    { slot: 'runner_up', label: 'Runner-up', teamId: bracket.runner_up_team_id },
+    { slot: 'third', label: 'Third place', teamId: bracket.third_team_id },
+    { slot: 'fourth', label: 'Fourth place', teamId: bracket.fourth_team_id },
+  ];
+
+  const items: RecapGbItem[] = [];
+  for (const s of slots) {
+    const name = (s.teamId && teamName.get(s.teamId)) || 'Your pick';
+    const exact = amount(`gb_${s.slot}`);
+    const consolation = amount(`gb_top4_${s.slot}`);
+    if (exact > 0) items.push({ label: s.label, detail: name, result: 'won', points: exact });
+    else if (consolation > 0)
+      items.push({ label: s.label, detail: `${name} · finished top 4`, result: 'consolation', points: consolation });
+    else items.push({ label: s.label, detail: name, result: 'lost', points: 0 });
+  }
+
+  const scorerPts = amount('gb_scorer');
+  items.push({ label: 'Top scorer', detail: scorerName, result: scorerPts > 0 ? 'won' : 'lost', points: scorerPts });
+  const goalsBonus = amount('gb_scorer_goals');
+  if (goalsBonus > 0) {
+    items.push({
+      label: 'Goal-tally bonus',
+      detail: `called ${bracket.scorer_goals} goal${bracket.scorer_goals === 1 ? '' : 's'}`,
+      result: 'won',
+      points: goalsBonus,
+    });
+  }
+  return items;
 }
 
 // ─── chrome ──────────────────────────────────────────────────────────────────

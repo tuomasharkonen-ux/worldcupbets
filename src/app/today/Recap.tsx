@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Link from 'next/link';
-import { Coins, Sparkles, Trophy, ArrowRight, FastForward, ArrowUp, ArrowDown, CheckCircle2, XCircle, MinusCircle, Star, Shield } from 'lucide-react';
+import { Coins, Sparkles, Trophy, ArrowRight, FastForward, ArrowUp, ArrowDown, CheckCircle2, XCircle, MinusCircle, Star, Shield, Crown } from 'lucide-react';
 import { Flag } from '@/components/ui/flag';
 import { Button } from '@/components/ui/button';
 import { toFlagEmoji } from '@/lib/country-flags';
@@ -47,6 +47,17 @@ export interface RecapFavoriteItem {
   points: number;
 }
 
+// Finale only: one line of the viewer's own Golden Bracket, mirroring a match pick —
+// the placement/scorer you called, whether it hit (exact), landed a top-4 consolation,
+// or missed, and the Points it earned (straight from the ledger). Revealed one at a
+// time so your bracket haul accumulates just like a match slip's.
+export interface RecapGbItem {
+  label: string; // "Champion", "Runner-up", "Third place", "Fourth place", "Top scorer", "Goal-tally bonus"
+  detail: string; // the team/player you picked, e.g. "Spain"
+  result: 'won' | 'consolation' | 'lost';
+  points: number; // Points this line earned (0 for a miss)
+}
+
 export interface RecapStanding {
   id: string;
   name: string;
@@ -55,6 +66,12 @@ export interface RecapStanding {
   rankBefore: number; // 1-based
   rankAfter: number;
   isYou: boolean;
+  // Finale only (see `RecapData.finale`): the Points this manager gained on the slate,
+  // and the Golden Bracket subset of it. On a normal recap these are left out and the
+  // board shows rank movement only; on the finale they're rendered per-player so
+  // *everyone's* final-day + bracket haul is visible, not just your own.
+  gained?: number; // total slate delta (= after − before); bets + favorites + bracket
+  gainedBracket?: number; // the Golden Bracket portion of `gained`
 }
 
 export interface RecapData {
@@ -67,6 +84,16 @@ export interface RecapData {
   coinsGained: number; // net signed
   standings: RecapStanding[];
   balance: number;
+  // The season finale — the slate carrying the final. Swaps the leaderboard scene for a
+  // grander board that reveals every manager's final-day + Golden Bracket points, crowns
+  // the league winner, and re-themes the title + send-off. Absent/false on every other
+  // recap (unchanged behaviour).
+  finale?: boolean;
+  // World Cup champion (the final's winner) — the title-scene hero on the finale.
+  champion?: { name: string; code: string | null };
+  // Finale only: the viewer's own Golden Bracket, itemised. When present (non-empty),
+  // the finale plays a dedicated slip-style reveal of how the bracket Points added up.
+  gbBreakdown?: RecapGbItem[];
 }
 
 // ─── motion helpers ─────────────────────────────────────────────────────────────
@@ -177,7 +204,14 @@ const RESULT_STYLE = {
   won: { color: 'text-success', Icon: CheckCircle2, tag: 'HIT' },
   lost: { color: 'text-danger', Icon: XCircle, tag: 'MISS' },
   void: { color: 'text-subtle', Icon: MinusCircle, tag: 'VOID' },
+  // Golden Bracket only: a right-team-wrong-slot consolation (a team you placed
+  // finished in the top four, just not in the slot you called).
+  consolation: { color: 'text-points', Icon: Star, tag: 'TOP 4' },
 } as const;
+
+// The shape one reveal line needs — shared by match picks (RecapPick, a subset of the
+// result union) and Golden Bracket items (which also use 'consolation').
+type RevealItem = { label: string; detail: string; result: keyof typeof RESULT_STYLE; points: number };
 
 // Reveal choreography timing (ms). First the final scoreline floats in, then — after
 // LEAD — picks reveal one at a time, each as a slow four-beat micro-sequence: label →
@@ -198,7 +232,7 @@ const CELEBRATE_HOLD = 1500;
 // up. The badge + points slots reserve their width from the start so nothing reflows as
 // each beat lands. `animate` is false on the static end-state (past matches / reduced
 // motion), where everything shows at once with an instant total.
-function PickRow({ pick, animate, reduced }: { pick: RecapPick; animate: boolean; reduced: boolean }) {
+function PickRow({ pick, animate, reduced }: { pick: RevealItem; animate: boolean; reduced: boolean }) {
   const s = RESULT_STYLE[pick.result];
   const hit = pick.points > 0;
 
@@ -413,7 +447,8 @@ function MatchReveal({
 // A spoiler-free, Wordle-style results grid for pasting into a chat. Each match is
 // one row — both flags around a 3-cell pattern for outcome · exact score · prop
 // (🟩 hit · ⬛ miss · ⬜ no bet) — with the night's points and the manager's new
-// leaderboard position below. Deliberately omits the picks themselves.
+// leaderboard position below. Deliberately omits the picks themselves. On the finale
+// the points are split into the match haul and the Golden Bracket haul, then totalled.
 function buildRecapShareText(data: RecapData): string {
   const cell = (pick: RecapPick | undefined): string =>
     !pick ? '⬜' : pick.result === 'won' ? '🟩' : pick.result === 'void' ? '⬜' : '⬛';
@@ -421,7 +456,7 @@ function buildRecapShareText(data: RecapData): string {
   const side = (name: string, code: string | null): string =>
     toFlagEmoji(name, code) ?? code?.toUpperCase() ?? name;
 
-  const lines: string[] = [`⚽ Match Day ${data.matchDay}`, ''];
+  const lines: string[] = [data.finale ? '🏆 World Cup 2026 — Final' : `⚽ Match Day ${data.matchDay}`, ''];
   for (const m of data.matches) {
     const outcome = m.picks.find(p => p.label === 'Outcome');
     const score = m.picks.find(p => p.label === 'Score');
@@ -430,12 +465,21 @@ function buildRecapShareText(data: RecapData): string {
     lines.push(`${side(m.home, m.homeCode)} ${grid} ${side(m.away, m.awayCode)}`);
   }
 
-  lines.push('', `✨ +${data.pointsGained} pts`);
+  // Finale: break the haul into match + Golden Bracket, then total. Otherwise the
+  // single night's-points line, unchanged.
+  if (data.finale) {
+    const gbTotal = (data.gbBreakdown ?? []).reduce((s, it) => s + it.points, 0);
+    lines.push('', `⚽ Final +${data.pointsGained} pts`);
+    if (data.gbBreakdown?.length) lines.push(`🥇 Golden Bracket +${gbTotal} pts`);
+    lines.push(`✨ Total +${data.pointsGained + gbTotal} pts`);
+  } else {
+    lines.push('', `✨ +${data.pointsGained} pts`);
+  }
   const me = data.standings.find(s => s.isYou);
   if (me) {
     const delta = me.rankBefore - me.rankAfter; // +ve = climbed
     const move = delta > 0 ? ` ▲${delta}` : delta < 0 ? ` ▼${-delta}` : '';
-    lines.push(`🏆 ${ordinal(me.rankAfter)}${move}`);
+    lines.push(data.finale ? `🏅 Finished ${ordinal(me.rankAfter)}` : `🏆 ${ordinal(me.rankAfter)}${move}`);
   }
 
   lines.push('', '🔗 https://worldcupbets.vercel.app');
@@ -449,6 +493,189 @@ function ordinal(n: number): string {
   return `${n}${suffix}`;
 }
 
+// ─── finale scenes ───────────────────────────────────────────────────────────────
+
+// Podium accent per top-3 rank (gold / silver / bronze); everyone else is plain.
+const PODIUM: Record<number, { ring: string; text: string }> = {
+  1: { ring: 'ring-[color:var(--color-points)]', text: 'text-points' },
+  2: { ring: 'ring-white/40', text: 'text-foreground/70' },
+  3: { ring: 'ring-[#cd7f32]/60', text: 'text-[#e0a06a]' },
+};
+
+// The title-scene hero on the finale: the World Cup champion, flag + name under a crown.
+function ChampionHero({ champion, animate }: { champion: { name: string; code: string | null }; animate: boolean }) {
+  return (
+    <div className={`glass-strong tier-legendary relative mt-4 overflow-hidden rounded-2xl px-4 py-5 ${animate ? 'animate-rise-in' : ''}`}>
+      <span className="tier-shine legendary" aria-hidden />
+      {animate && <Confetti tier="legendary" />}
+      <p className="relative flex items-center justify-center gap-1.5 text-[0.7rem] font-semibold uppercase tracking-[0.2em] text-subtle">
+        <Crown className="size-3.5 text-points" aria-hidden />
+        World Cup champions
+      </p>
+      <div className="relative mt-2 flex items-center justify-center gap-3">
+        <Flag name={champion.name} countryCode={champion.code} size="lg" />
+        <span className="text-glow font-display text-2xl font-bold tracking-tight text-foreground">
+          {champion.name}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// One finale standings row. Unlike the plain board, the manager's whole-tournament total
+// counts up from `before` → `after` and the slate haul is broken out into its final-day
+// and Golden Bracket parts, so every player's night is on show — not just yours.
+function FinaleRow({ s, active, reduced, index }: { s: RecapStanding; active: boolean; reduced: boolean; index: number }) {
+  const gained = s.gained ?? s.after - s.before;
+  const bracket = s.gainedBracket ?? 0;
+  const fromMatch = gained - bracket;
+  const counted = useCountUp(gained, active, reduced, 900);
+  const total = s.before + counted;
+  const delta = s.rankBefore - s.rankAfter; // +ve = climbed
+  const podium = PODIUM[s.rankAfter];
+  const isChamp = s.rankAfter === 1;
+
+  return (
+    <motion.li
+      initial={active && !reduced ? { opacity: 0, y: 12 } : false}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: 'spring', stiffness: 420, damping: 28, delay: reduced ? 0 : index * 0.08 }}
+      className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${
+        isChamp
+          ? 'tier-legendary bg-[color-mix(in_oklab,var(--color-points)_16%,transparent)]'
+          : s.isYou
+            ? 'bg-[color-mix(in_oklab,var(--color-primary-bright)_14%,transparent)]'
+            : ''
+      }`}
+    >
+      <span
+        className={`flex size-7 shrink-0 items-center justify-center rounded-full font-mono text-sm font-bold tabular-nums ${
+          podium ? `bg-surface-3 ring-1 ${podium.ring} ${podium.text}` : 'text-subtle'
+        }`}
+      >
+        {isChamp ? <Crown className="size-4" aria-hidden /> : s.rankAfter}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className={`min-w-0 truncate font-medium ${s.isYou || isChamp ? 'text-foreground' : 'text-muted'}`}>
+            {s.name}
+          </span>
+          {s.isYou && <span className="shrink-0 text-xs text-primary-bright">(you)</span>}
+          {delta !== 0 && (
+            <span className={`inline-flex shrink-0 items-center text-xs font-semibold ${delta > 0 ? 'text-success' : 'text-danger'}`}>
+              {delta > 0 ? <ArrowUp className="size-3" aria-hidden /> : <ArrowDown className="size-3" aria-hidden />}
+              {Math.abs(delta)}
+            </span>
+          )}
+        </div>
+        {gained !== 0 && (
+          <p className="mt-0.5 flex items-center gap-1.5 text-[0.7rem] text-subtle">
+            <span className={fromMatch >= 0 ? 'text-muted' : 'text-danger'}>
+              Final {fromMatch >= 0 ? `+${fromMatch}` : fromMatch}
+            </span>
+            {bracket !== 0 && (
+              <span className="flex items-center gap-1 text-points">
+                <Sparkles className="size-3" aria-hidden />
+                Bracket +{bracket}
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        <p className="font-mono text-base font-bold tabular-nums text-foreground">{total}</p>
+        {gained > 0 && <p className="font-mono text-[0.7rem] font-semibold tabular-nums text-points">+{gained}</p>}
+      </div>
+    </motion.li>
+  );
+}
+
+// The finale's Golden Bracket slip — the viewer's own bracket revealed like a match
+// slip: each placement/scorer call lists in turn with its Points counting up, then the
+// bracket total lands under a legendary flourish. `phase === 'active'` animates the
+// reveal and reports done via `onRevealed`; 'past' / reduced motion is the static
+// end-state. Reuses the exact match-pick choreography (PickRow + the LEAD/PICK timings).
+function GbReveal({
+  items,
+  total,
+  phase,
+  reduced,
+  onRevealed,
+}: {
+  items: RecapGbItem[];
+  total: number;
+  phase: 'active' | 'past';
+  reduced: boolean;
+  onRevealed: () => void;
+}) {
+  const animate = phase === 'active' && !reduced;
+  const count = items.length;
+  const [revealedRaw, setRevealedRaw] = useState(animate ? 0 : count);
+  const [doneRaw, setDoneRaw] = useState(!animate);
+  const revealed = animate ? revealedRaw : count;
+  const done = animate ? doneRaw : true;
+
+  useEffect(() => {
+    if (!animate) return;
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    items.forEach((_, i) => {
+      timers.push(setTimeout(() => setRevealedRaw(i + 1), LEAD_MS + i * PICK_TOTAL_MS));
+    });
+    timers.push(
+      setTimeout(() => {
+        setDoneRaw(true);
+        onRevealed();
+      }, LEAD_MS + Math.max(count, 1) * PICK_TOTAL_MS),
+    );
+    return () => timers.forEach(clearTimeout);
+    // onRevealed is a stable parent setter; run once when the slip starts animating.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animate]);
+
+  const totalCount = useCountUp(total, done, !animate || reduced, SUB_COUNT_MS);
+  const flair = done && total > 0;
+
+  return (
+    <div className={`glass relative overflow-hidden rounded-2xl border border-points/30 px-4 py-3.5 transition-colors duration-500 ${flair ? 'tier-legendary' : ''}`}>
+      {flair && <span className="tier-shine legendary" aria-hidden />}
+      <p className="relative mb-2 flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-subtle">
+        <Crown className="size-3.5 text-points" aria-hidden />
+        Your Golden Bracket
+      </p>
+      <div className="relative space-y-1.5">
+        {items.slice(0, revealed).map((it, i) => (
+          <PickRow key={i} pick={it} animate={animate} reduced={reduced} />
+        ))}
+      </div>
+      {done && (
+        <p className="relative mt-3 flex items-center justify-center gap-1.5 border-t border-border pt-2.5 text-sm font-bold text-points">
+          <Sparkles className="size-3.5" aria-hidden />
+          Bracket total +{totalCount} pts
+        </p>
+      )}
+    </div>
+  );
+}
+
+// The finale leaderboard scene — replaces the plain standings block. `active` gates the
+// per-row count-up so it fires when the scene lands.
+function FinaleBoard({ standings, active, reduced }: { standings: RecapStanding[]; active: boolean; reduced: boolean }) {
+  return (
+    <div className={`glass-strong rounded-2xl px-4 py-4 ${active && !reduced ? 'animate-rise-in' : ''}`}>
+      <p className="mb-1 flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-[0.2em] text-subtle">
+        <Trophy className="size-3.5 text-points" aria-hidden />
+        Final standings
+      </p>
+      <p className="mb-3 text-center text-[0.7rem] text-subtle">Final &amp; Golden Bracket points, in</p>
+      <ul className="space-y-1.5">
+        {standings.map((s, i) => (
+          <FinaleRow key={s.id} s={s} active={active} reduced={reduced} index={i} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 // ─── the recap ────────────────────────────────────────────────────────────────
 
 // `doneAction` is the server action that records the recap as seen — wired to the
@@ -457,29 +684,42 @@ function ordinal(n: number): string {
 export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () => Promise<void> }) {
   const reduced = useReducedMotion();
   const M = data.matches.length;
-  // scene indices: 0 title · 1..M matches · M+1 points · M+2 coins · M+3 board · M+4 cta
-  const TOTAL = M + 5;
+  // The finale adds a Golden Bracket slip between the match reveals and the points
+  // scene, but only when the viewer actually placed a bracket (non-empty breakdown).
+  const gbItems = data.gbBreakdown ?? [];
+  const hasGb = !!data.finale && gbItems.length > 0;
+  const gbScene = hasGb ? M + 1 : -1;
+  const G = hasGb ? 1 : 0;
+  const gbTotal = gbItems.reduce((s, it) => s + it.points, 0);
+  // scene indices: 0 title · 1..M matches · [M+1 golden bracket] · points · coins · board · cta
+  const POINTS = M + 1 + G;
+  const COINS = M + 2 + G;
+  const BOARD = M + 3 + G;
+  const CTA = M + 4 + G;
+  const TOTAL = M + 5 + G;
   const lastScene = TOTAL - 1;
 
   // Reduced motion is known on first render (useSyncExternalStore), so start straight
   // at the full static end-state; otherwise begin at the title and auto-advance.
   const [step, setStep] = useState(() => (reduced ? lastScene : 0));
 
-  // Match scenes don't advance on a fixed timer — they wait for the slip to finish
-  // revealing its picks and play the tier celebration first. `MatchReveal` reports the
-  // scene it just finished via `onRevealed`; the gate is open only once the *current*
-  // match scene has reported, and reopens automatically when `step` moves on.
+  // Reveal scenes (each match slip, and the Golden Bracket slip) don't advance on a
+  // fixed timer — they wait for the slip to finish listing its picks and celebrate
+  // first. Each reports the scene it just finished via `onRevealed`; the gate is open
+  // only once the *current* reveal scene has reported, and reopens when `step` moves on.
   const isMatchScene = step >= 1 && step <= M;
+  const isGbScene = hasGb && step === gbScene;
+  const isRevealScene = isMatchScene || isGbScene;
   const [settledScene, setSettledScene] = useState(0);
-  const matchSettled = isMatchScene && settledScene === step;
+  const revealSettled = isRevealScene && settledScene === step;
 
   useEffect(() => {
     if (reduced || step >= lastScene) return;
-    if (isMatchScene && !matchSettled) return; // hold until the slip has celebrated
-    const delay = isMatchScene ? CELEBRATE_HOLD : 1500;
+    if (isRevealScene && !revealSettled) return; // hold until the slip has finished revealing
+    const delay = isRevealScene ? CELEBRATE_HOLD : 1500;
     const t = setTimeout(() => setStep(s => Math.min(lastScene, s + 1)), delay);
     return () => clearTimeout(t);
-  }, [step, reduced, lastScene, isMatchScene, matchSettled]);
+  }, [step, reduced, lastScene, isRevealScene, revealSettled]);
 
   // The recap auto-plays; the only manual control is skipping the whole show to the
   // static end-state. No tap-to-advance — you either watch it or skip it all.
@@ -488,8 +728,8 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
   const shown = (scene: number) => step >= scene;
   const justNow = (scene: number) => step === scene && !reduced; // first frame of a scene
 
-  const pointsValue = useCountUp(data.pointsGained, shown(M + 1), reduced);
-  const coinsValue = useCountUp(Math.abs(data.coinsGained), shown(M + 2), reduced);
+  const pointsValue = useCountUp(data.pointsGained, shown(POINTS), reduced);
+  const coinsValue = useCountUp(Math.abs(data.coinsGained), shown(COINS), reduced);
 
   const boardAfter = [...data.standings].sort((a, b) => a.rankAfter - b.rankAfter);
 
@@ -507,13 +747,18 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
       )}
 
       <div className="space-y-4">
-        {/* 0 — title */}
+        {/* 0 — title (finale re-themes it and crowns the champion) */}
         {shown(0) && (
           <div className={`text-center ${justNow(0) ? 'animate-rise-in' : ''}`}>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-subtle">Last night</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-subtle">
+              {data.finale ? 'The final whistle' : 'Last night'}
+            </p>
             <h1 className="text-glow mt-1 font-display text-3xl font-bold tracking-tight text-foreground">
-              Match day {data.matchDay}
+              {data.finale ? 'World Cup 2026' : `Match day ${data.matchDay}`}
             </h1>
+            {data.finale && data.champion && (
+              <ChampionHero champion={data.champion} animate={justNow(0)} />
+            )}
           </div>
         )}
 
@@ -532,17 +777,29 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
           );
         })}
 
-        {/* M+1 — points odometer. A favorite-team milestone (kind 'team' — the ladder
+        {/* M+1 (finale, if a bracket was placed) — Golden Bracket slip: your bracket
+            revealed pick-by-pick, exactly like a match slip, tallying to its total. */}
+        {hasGb && shown(gbScene) && (
+          <GbReveal
+            items={gbItems}
+            total={gbTotal}
+            phase={step === gbScene ? 'active' : 'past'}
+            reduced={reduced}
+            onRevealed={() => setSettledScene(gbScene)}
+          />
+        )}
+
+        {/* points odometer. A favorite-team milestone (kind 'team' — the ladder
             rungs/champion/third) gets the same legendary gold treatment as a 3/3 match
             slip (tier-legendary glow + shine), so the moment reads as a comparable jackpot. */}
-        {shown(M + 1) && (() => {
+        {shown(POINTS) && (() => {
           const hasMilestone = data.favoriteItems.some(it => it.kind === 'team');
           return (
             <div
-              className={`glass-strong relative overflow-hidden rounded-2xl px-4 py-5 text-center transition-colors duration-500 ${hasMilestone ? 'tier-legendary' : ''} ${justNow(M + 1) ? 'animate-rise-in' : ''}`}
+              className={`glass-strong relative overflow-hidden rounded-2xl px-4 py-5 text-center transition-colors duration-500 ${hasMilestone ? 'tier-legendary' : ''} ${justNow(POINTS) ? 'animate-rise-in' : ''}`}
             >
               {hasMilestone && <span className="tier-shine legendary" aria-hidden />}
-              {justNow(M + 1) && data.pointsGained > 0 && <Confetti tier="legendary" />}
+              {justNow(POINTS) && data.pointsGained > 0 && <Confetti tier="legendary" />}
               <p className="relative flex items-center justify-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-subtle">
                 <Sparkles className="size-3.5 text-points" aria-hidden />
                 Points won
@@ -597,9 +854,9 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
           );
         })()}
 
-        {/* M+2 — coins cascade */}
-        {shown(M + 2) && (
-          <div className={`glass rounded-2xl px-4 py-4 ${justNow(M + 2) ? 'animate-rise-in' : ''}`}>
+        {/* coins cascade */}
+        {shown(COINS) && (
+          <div className={`glass rounded-2xl px-4 py-4 ${justNow(COINS) ? 'animate-rise-in' : ''}`}>
             <p className="flex items-center justify-between text-xs font-semibold uppercase tracking-wider text-subtle">
               <span className="flex items-center gap-1.5">
                 <Coins className="size-3.5 text-points" aria-hidden />
@@ -623,9 +880,13 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
           </div>
         )}
 
-        {/* M+3 — leaderboard FLIP */}
-        {shown(M + 3) && (
-          <div className={`glass rounded-2xl px-4 py-4 ${justNow(M + 3) ? 'animate-rise-in' : ''}`}>
+        {/* leaderboard. The finale swaps the plain FLIP board for the grand one
+            that reveals every manager's final-day + Golden Bracket haul (the emphasis). */}
+        {shown(BOARD) && data.finale && (
+          <FinaleBoard standings={boardAfter} active={shown(BOARD)} reduced={reduced} />
+        )}
+        {shown(BOARD) && !data.finale && (
+          <div className={`glass rounded-2xl px-4 py-4 ${justNow(BOARD) ? 'animate-rise-in' : ''}`}>
             <p className="mb-3 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-subtle">
               <Trophy className="size-3.5 text-points" aria-hidden />
               Standings
@@ -656,9 +917,18 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
           </div>
         )}
 
-        {/* M+4 — shop CTA */}
-        {shown(M + 4) && (
-          <div className={`glass-strong rounded-2xl px-4 py-5 text-center ${justNow(M + 4) ? 'animate-rise-in' : ''}`}>
+        {/* shop CTA (finale swaps it for a tournament send-off) */}
+        {shown(CTA) && data.finale && (
+          <div className={`glass-strong rounded-2xl px-4 py-6 text-center ${justNow(CTA) ? 'animate-rise-in' : ''}`}>
+            <Trophy className="mx-auto size-8 text-points" aria-hidden />
+            <p className="text-glow mt-2 font-display text-xl font-bold text-foreground">That’s a wrap</p>
+            <p className="mt-1 text-sm text-muted">
+              The World Cup is over. Thanks for playing — check the leaderboard for the final word.
+            </p>
+          </div>
+        )}
+        {shown(CTA) && !data.finale && (
+          <div className={`glass-strong rounded-2xl px-4 py-5 text-center ${justNow(CTA) ? 'animate-rise-in' : ''}`}>
             <p className="text-sm text-muted">You have</p>
             <p className="text-glow my-1 font-mono text-3xl font-bold tabular-nums text-points">{data.balance}¢</p>
             <p className="text-sm text-muted">to spend. The shop opens soon.</p>
@@ -680,19 +950,19 @@ export function Recap({ data, doneAction }: { data: RecapData; doneAction?: () =
           <div className="space-y-2">
             <p className="flex items-center gap-2 px-1 text-xs font-semibold uppercase tracking-wider text-subtle">
               <StepDot n={2} />
-              Then — on to the next one
+              {data.finale ? 'Then — see where you finished' : 'Then — on to the next one'}
             </p>
             {doneAction ? (
               <form action={doneAction}>
                 <Button type="submit" variant="primary" size="lg" className="w-full">
-                  Next match day
+                  {data.finale ? 'Final leaderboard' : 'Next match day'}
                   <ArrowRight className="size-5" aria-hidden />
                 </Button>
               </form>
             ) : (
               <Button asChild variant="primary" size="lg" className="w-full">
-                <Link href="/today">
-                  Next match day
+                <Link href={data.finale ? '/leaderboard' : '/today'}>
+                  {data.finale ? 'Final leaderboard' : 'Next match day'}
                   <ArrowRight className="size-5" aria-hidden />
                 </Link>
               </Button>
